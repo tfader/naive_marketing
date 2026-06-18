@@ -22,6 +22,8 @@ const discount = computed<number | null>(() => {
   return d == null ? null : Number(d)
 })
 const minQty = computed<number | null>(() => props.item?.min_products ?? null)
+const buyQty = computed<number | null>(() => props.item?.buy_quantity ?? null)
+const payQty = computed<number | null>(() => props.item?.pay_quantity ?? null)
 
 const kind = computed(() => {
   const s = String(props.item?.promotion_type?.code || props.item?.promotion_type?.name || '').toLowerCase()
@@ -122,12 +124,12 @@ const setTotal = computed<number | null>(() => {
       <div class="lp-prod">
         <div class="lp-img">
           <span>PRODUCT</span>
-          <span class="lp-qty-badge">{{ minQty ?? 'X' }}<small>{{ kind === 'quantity' ? ' szt.' : '+ szt.' }}</small></span>
+          <span class="lp-qty-badge">{{ kind === 'quantity' ? (buyQty ?? minQty ?? 'X') : (minQty ?? 'X') }}<small>{{ kind === 'quantity' ? ' szt.' : '+ szt.' }}</small></span>
         </div>
         <div class="lp-body">
           <div class="lp-name">{{ lead?.name }}</div>
           <div class="lp-sub">{{ lead?.code }}</div>
-          <span class="lp-ribbon">{{ kind === 'quantity' ? 'Multibuy set' : 'Per unit from ' + (minQty ?? 'X') + ' pcs' }}</span>
+          <span class="lp-ribbon">{{ kind === 'quantity' ? ((buyQty != null && payQty != null) ? ('Buy ' + buyQty + ', pay ' + payQty) : 'Multibuy') : 'Per unit from ' + (minQty ?? 'X') + ' pcs' }}</span>
           <div class="lp-price">
             <span class="lp-new">{{ fmt(setPrice) }}<span class="lp-cur">PLN</span></span>
             <span class="lp-mech">{{ kind === 'quantity' ? 'per set' : '/ unit' }}</span>
