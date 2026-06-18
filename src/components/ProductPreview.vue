@@ -31,6 +31,12 @@ const marginPct = computed(() =>
 function marginClass(v: number | null) {
   return { pos: (v ?? 0) > 0, neg: (v ?? 0) < 0 }
 }
+
+// Mini stock-projection bar height (% of starting stock), min 2% so empty days stay visible.
+function stockBarHeight(endStock: number, start: number): string {
+  if (!start) return '2%'
+  return `${Math.max(2, Math.round((endStock / start) * 100))}%`
+}
 </script>
 
 <template>
@@ -77,6 +83,32 @@ function marginClass(v: number | null) {
       <div class="pp-fin"><span class="pp-fl">Sales value</span><span class="pp-fv"><MoneyValue :value="product.product_sales_value" /></span></div>
       <div class="pp-fin"><span class="pp-fl">Margin</span><span class="pp-fv" :class="marginClass(margin)"><MoneyValue :value="margin" /></span></div>
       <div class="pp-fin"><span class="pp-fl">Margin %</span><span class="pp-fv" :class="marginClass(marginPct)">{{ marginPct == null ? '—' : marginPct.toFixed(2) + '%' }}</span></div>
+    </div>
+
+    <div v-if="product.stock_projection" class="pp-section">
+      <div class="pp-section-title">Stock projection</div>
+      <div class="pp-stock-head">
+        <div class="pp-stats pp-stock-stats">
+          <div class="pp-stat"><span class="pp-l">Start stock</span><span class="pp-v"><FieldMeta ref-model="CampaignItemProduct" :ref-id="product.link_id" attribute="start_promo_stock" label="Start stock" :size="16" />{{ num(product.stock_projection.start) }}</span></div>
+          <div class="pp-stat"><span class="pp-l">Daily sales</span><span class="pp-v">{{ num(product.stock_projection.daily_sales) }}</span></div>
+          <div class="pp-stat"><span class="pp-l">End stock</span><span class="pp-v" :class="{ neg: product.stock_projection.end_stock === 0 }">{{ num(product.stock_projection.end_stock) }}</span></div>
+          <div class="pp-stat"><span class="pp-l">Days of cover</span><span class="pp-v">{{ product.stock_projection.days_of_cover ?? '—' }}</span></div>
+        </div>
+        <NTag v-if="product.stock_projection.stockout_day" size="small" type="error" :bordered="false">
+          Stock-out on day {{ product.stock_projection.stockout_day }} of {{ product.stock_projection.days.length }}
+        </NTag>
+        <NTag v-else size="small" type="success" :bordered="false">Stock lasts the full promotion</NTag>
+      </div>
+      <div class="pp-stock-bars">
+        <div
+          v-for="d in product.stock_projection.days"
+          :key="d.day"
+          class="pp-stock-bar"
+          :class="{ out: d.end_stock === 0 }"
+          :title="`Day ${d.day}: ${num(d.end_stock)} left`"
+          :style="{ height: stockBarHeight(d.end_stock, product.stock_projection.start) }"
+        />
+      </div>
     </div>
 
     <div class="pp-section">
@@ -237,6 +269,33 @@ function marginClass(v: number | null) {
 }
 .pp-fv.neg {
   color: #d83a45;
+}
+.pp-stock-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.pp-stock-stats {
+  flex: 1 1 auto;
+}
+.pp-stock-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 70px;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+.pp-stock-bar {
+  flex: 1 0 5px;
+  min-width: 5px;
+  background: #5b50d6;
+  border-radius: 2px 2px 0 0;
+}
+.pp-stock-bar.out {
+  background: #d83a45;
 }
 .pp-cond-list {
   display: flex;

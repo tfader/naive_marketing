@@ -175,6 +175,8 @@ interface CatalogProduct {
   current_sale_price: string | number | null
   avg_daily_sales: string | number | null
   lower_sale_price_last_30_days: string | number | null
+  current_stock_level: number | null
+  start_promo_stock: number | null
   supplier: { id: number; name: string } | null
 }
 
@@ -185,6 +187,7 @@ const addProductId = ref<number | null>(null)
 const addPromotionFactor = ref<number>(100)
 const addDiscountPercent = ref<number | null>(null)
 const addNewPrice = ref<number | null>(null)
+const addStartStock = ref<number | null>(null)
 
 // Products from the category that aren't yet on this item.
 const addProductOptions = computed<SelectOption[]>(() => {
@@ -194,6 +197,10 @@ const addProductOptions = computed<SelectOption[]>(() => {
     .map((p) => ({ label: `${p.code} — ${p.name}`, value: p.id }))
 })
 const selectedProduct = computed(() => categoryProducts.value.find((p) => p.id === addProductId.value) ?? null)
+// Prefill the editable start stock from the picked product (start_promo_stock, else current level).
+watch(selectedProduct, (p) => {
+  addStartStock.value = p ? (p.start_promo_stock ?? p.current_stock_level) : null
+})
 const productLimitsHint = computed(() => {
   const it = productItem.value
   if (!it) return ''
@@ -388,6 +395,7 @@ async function openAddProduct(item: CampaignItem, cc: CampaignCategory) {
   addPromotionFactor.value = 100
   addDiscountPercent.value = null
   addNewPrice.value = null
+  addStartStock.value = null
   categoryProducts.value = []
   showProductsModal.value = true
   try {
@@ -408,6 +416,7 @@ async function addProduct() {
       promotion_factor: addPromotionFactor.value,
       discount_percent: addDiscountPercent.value,
       new_price: addNewPrice.value,
+      start_promo_stock: addStartStock.value,
     })
     message.success('Product added')
     showProductsModal.value = false
@@ -465,6 +474,12 @@ async function patchProduct(item: CampaignItem, row: PromotionProduct, payload: 
     const errors = err.response?.data?.errors
     message.error(Array.isArray(errors) ? errors.join(', ') : 'Failed to update product')
   }
+}
+
+// Mini stock-projection bar height (% of starting stock), min 2% so empty days stay visible.
+function stockBarHeight(endStock: number, start: number): string {
+  if (!start) return '2%'
+  return `${Math.max(2, Math.round((endStock / start) * 100))}%`
 }
 
 // Product margin (sales value − cost) for the 2-line product rows.
@@ -981,6 +996,34 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
           <NInputNumber :value="toNum(editingCip.new_price)" :min="0" :precision="2" :format="formatNumberInput" :parse="parseNumberInput" style="width: 140px" placeholder="—" @update:value="(v) => patchEditCip({ new_price: v, discount_percent: null })" />
         </div>
 
+        <div class="ap-factor">
+          <span class="stat-lbl">Start stock</span>
+          <NInputNumber :value="editingCip.start_promo_stock" :min="0" :format="formatNumberInput" :parse="parseNumberInput" style="width: 160px" placeholder="—" @update:value="(v) => patchEditCip({ start_promo_stock: v })" />
+          <NText depth="3" style="font-size:12px">stock available at the start of the promotion (copied from product, editable)</NText>
+        </div>
+
+        <div v-if="editingCip.stock_projection" class="stock-proj">
+          <div class="stock-sum">
+            <span class="meta"><span class="stat-lbl">Daily sales</span><span class="meta-val">{{ editingCip.stock_projection.daily_sales }}</span></span>
+            <span class="meta"><span class="stat-lbl">End stock</span><span class="meta-val" :class="{ neg: editingCip.stock_projection.end_stock === 0 }">{{ editingCip.stock_projection.end_stock }}</span></span>
+            <span class="meta"><span class="stat-lbl">Days of cover</span><span class="meta-val">{{ editingCip.stock_projection.days_of_cover ?? '—' }}</span></span>
+            <NTag v-if="editingCip.stock_projection.stockout_day" size="small" type="error" :bordered="false">
+              Stock-out on day {{ editingCip.stock_projection.stockout_day }} of {{ editingCip.stock_projection.days.length }}
+            </NTag>
+            <NTag v-else size="small" type="success" :bordered="false">Stock lasts the full promotion</NTag>
+          </div>
+          <div class="stock-bars">
+            <div
+              v-for="d in editingCip.stock_projection.days"
+              :key="d.day"
+              class="stock-bar"
+              :class="{ out: d.end_stock === 0 }"
+              :title="`Day ${d.day}: ${d.end_stock} left`"
+              :style="{ height: stockBarHeight(d.end_stock, editingCip.stock_projection.start) }"
+            />
+          </div>
+        </div>
+
         <div class="cond-title">Supplier purchase conditions</div>
 
         <div v-if="editingCip.conditions.length" class="cond-list">
@@ -1114,6 +1157,13 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
           <div class="meta"><span class="stat-lbl">Cost price</span><span class="meta-val"><MoneyValue :value="selectedProduct.current_cost_price" /></span></div>
           <div class="meta"><span class="stat-lbl">Lowest 30d</span><span class="meta-val"><MoneyValue :value="selectedProduct.lower_sale_price_last_30_days" /></span></div>
           <div class="meta"><span class="stat-lbl">Avg / day</span><span class="meta-val">{{ selectedProduct.avg_daily_sales ?? '—' }}</span></div>
+          <div class="meta"><span class="stat-lbl">Current stock</span><span class="meta-val">{{ selectedProduct.current_stock_level ?? '—' }}</span></div>
+        </div>
+
+        <div v-if="selectedProduct" class="ap-factor">
+          <span class="stat-lbl">Start stock</span>
+          <NInputNumber v-model:value="addStartStock" :min="0" :format="formatNumberInput" :parse="parseNumberInput" style="width: 160px" placeholder="—" />
+          <NText depth="3" style="font-size:12px">stock at promotion start (defaults to current, editable)</NText>
         </div>
 
         <div class="ap-factor">
@@ -2021,6 +2071,35 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   gap: 12px;
   margin-top: 14px;
 }
+.stock-proj {
+  margin-top: 14px;
+  padding: 12px;
+  background: #f7f8fa;
+  border-radius: 8px;
+}
+.stock-sum {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.stock-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+  overflow-x: auto;
+}
+.stock-bar {
+  flex: 1 0 4px;
+  min-width: 4px;
+  background: #5b50d6;
+  border-radius: 2px 2px 0 0;
+}
+.stock-bar.out {
+  background: #d83a45;
+}
 .cond-list {
   display: flex;
   flex-direction: column;
@@ -2077,4 +2156,9 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+/* ---- promo header: consistent layout across promotion types (option B) ---- */
+.ck-promo-head { flex-wrap: nowrap; align-items: flex-start; }
+.ck-promo-left { flex: 1 1 auto; min-width: 0; }
+.ck-promo-right { flex: 0 0 auto; flex-wrap: nowrap; }
+.ck-skeleton { max-width: 200px; overflow: hidden; }
 </style>

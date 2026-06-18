@@ -92,6 +92,15 @@ export interface SupplierCondition {
   backmargin_value: string | number | null
 }
 
+export interface StockProjection {
+  start: number
+  daily_sales: number
+  days: { day: number; end_stock: number }[]
+  end_stock: number
+  stockout_day: number | null
+  days_of_cover: number | null
+}
+
 export interface PromotionProduct {
   link_id: number
   id: number
@@ -102,6 +111,8 @@ export interface PromotionProduct {
   avg_daily_sales: string | number | null
   lower_sale_price_last_30_days: string | number | null
   promotion_factor: number | null
+  start_promo_stock: number | null
+  stock_projection: StockProjection | null
   discount_percent: string | number | null
   new_price: string | number | null
   estimated_volume: string | number | null
