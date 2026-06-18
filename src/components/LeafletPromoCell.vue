@@ -215,7 +215,7 @@ const setTotal = computed<number | null>(() => {
 .lp-new { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 22px; font-weight: 700; color: #d83a45; letter-spacing: -0.02em; line-height: 1; }
 .lp-new.sm { font-size: 18px; }
 .lp-cur { font-size: 0.5em; font-weight: 600; margin-left: 3px; }
-.lp-mech { font-size: 10.5px; color: #9aa0ab; align-self: flex-end; }
+.lp-mech { font-size: 10.5px; color: #9aa0ab; align-self: flex-end; white-space: nowrap; }
 .lp-disc { font-size: 11px; font-weight: 700; color: #fff; background: #d83a45; padding: 2px 7px; border-radius: 5px; }
 
 /* mechanic ribbon / badges */
@@ -228,9 +228,9 @@ const setTotal = computed<number | null>(() => {
 .lp-setrow, .lp-pairrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lp-setitem { display: flex; flex-direction: column; gap: 4px; width: 124px; }
 .lp-setname { font-size: 12px; font-weight: 600; line-height: 1.2; }
-.lp-totlbl { font-size: 10px; color: #9aa0ab; text-transform: uppercase; letter-spacing: 0.04em; }
+.lp-totlbl { font-size: 10px; color: #9aa0ab; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 .lp-op { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 20px; font-weight: 700; color: #cfd3da; }
-.lp-setprice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-left: 2px; }
+.lp-setprice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-left: 2px; flex: 0 0 auto; }
 .lp-pairrow .lp-img { flex: 1 1 0; }
 .lp-gift {
   flex: 1 1 0; position: relative; height: 96px; border-radius: 8px;
