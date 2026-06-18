@@ -1886,8 +1886,8 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   align-items: center;
   gap: 20px;
   padding: 14px 20px;
-  background: #f3f2fd;
-  border: 1px solid #e2dffb;
+  background: rgba(216, 58, 69, 0.16);
+  border: 1px solid rgba(216, 58, 69, 0.32);
   border-radius: 12px;
 }
 .ck-set-cell {
@@ -1909,8 +1909,8 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   text-transform: none;
   letter-spacing: 0;
   font-weight: 700;
-  color: #5b50d6;
-  background: #e2dffb;
+  color: #d83a45;
+  background: #fff;
   padding: 0 6px;
   border-radius: 6px;
 }
@@ -1934,7 +1934,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #3f37a8;
+  color: #c0202c;
 }
 .ck-set-save {
   margin-left: auto;

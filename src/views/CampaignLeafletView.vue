@@ -3,8 +3,8 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import api from '../api/client'
-import { formatNumber } from '../composables/parameters'
 import type { Campaign, PromotionProduct } from '../types/campaign'
+import LeafletPromoCell from '../components/LeafletPromoCell.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,6 +21,7 @@ interface LeafletPromo {
   pageNo: number | null
   order: number
   products: PromotionProduct[]
+  item: any
 }
 
 const promos = computed<LeafletPromo[]>(() => {
@@ -34,6 +35,7 @@ const promos = computed<LeafletPromo[]>(() => {
         pageNo: it.page_no,
         order: it.order_on_page ?? 9999,
         products: it.products,
+        item: it,
       })
     }
   }
@@ -59,18 +61,20 @@ const pages = computed(() => {
 const unplaced = computed(() => promos.value.filter((p) => p.pageNo == null))
 const headerColor = computed(() => campaign.value?.campaign_type?.color || '#5b50d6')
 
-function fmt(v: string | number | null | undefined): string {
-  if (v == null || v === '') return '—'
-  return formatNumber(v)
+const viewMode = ref<'all' | 'single'>('all')
+const currentPage = ref(1)
+const visiblePages = computed(() =>
+  viewMode.value === 'single'
+    ? pages.value.filter((p) => p.no === currentPage.value)
+    : pages.value
+)
+function goPage(n: number) {
+  currentPage.value = Math.max(1, Math.min(pageCount.value, n))
 }
-function bigPrice(p: PromotionProduct): string | number | null | undefined {
-  return p.new_price ?? p.current_sale_price
-}
-function oldPrice(p: PromotionProduct): string | number | null {
-  return p.new_price != null ? p.current_sale_price : null
-}
-function discountLabel(p: PromotionProduct): string | null {
-  return p.discount_percent == null ? null : `-${p.discount_percent}%`
+function colsFor(n: number): number {
+  if (n <= 1) return 1
+  if (n === 2) return 2
+  return 3
 }
 
 function printLeaflet() {
@@ -106,7 +110,18 @@ async function load() {
             <span class="lf-sub">Leaflet preview · {{ pageCount }} {{ pageCount === 1 ? 'page' : 'pages' }}</span>
           </div>
         </div>
-        <button class="lf-print" @click="printLeaflet">Print / PDF</button>
+        <div class="lf-views">
+          <div class="lf-seg">
+            <button class="lf-seg-btn" :class="{ active: viewMode === 'all' }" @click="viewMode = 'all'">All pages</button>
+            <button class="lf-seg-btn" :class="{ active: viewMode === 'single' }" @click="viewMode = 'single'">Single</button>
+          </div>
+          <div v-if="viewMode === 'single'" class="lf-pager">
+            <button class="lf-nav" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">‹</button>
+            <span class="lf-pager-lbl mono">{{ currentPage }} / {{ pageCount }}</span>
+            <button class="lf-nav" :disabled="currentPage >= pageCount" @click="goPage(currentPage + 1)">›</button>
+          </div>
+          <button class="lf-print" @click="printLeaflet">Print / PDF</button>
+        </div>
       </div>
     </div>
 
@@ -115,63 +130,34 @@ async function load() {
 
     <!-- pages -->
     <div v-else class="lf-pages">
-      <section v-for="pg in pages" :key="pg.no" class="lf-sheet">
+      <section v-for="pg in visiblePages" :key="pg.no" class="lf-sheet">
         <div class="lf-sheet-head" :style="{ background: headerColor }">
           <span class="lf-sheet-name">{{ campaign?.name }}</span>
           <span class="lf-sheet-page">Page {{ pg.no }} / {{ pageCount }}</span>
         </div>
 
-        <div v-if="pg.promos.length" class="lf-grid">
-          <article v-for="promo in pg.promos" :key="promo.id" class="lf-cell">
-            <div class="lf-cell-top">
-              <span class="lf-cat">{{ promo.categoryName }}</span>
-              <span class="lf-type">{{ promo.typeName }}</span>
-            </div>
-            <div v-if="promo.products.length" class="lf-prods">
-              <div v-for="p in promo.products" :key="p.link_id" class="lf-prod">
-                <div class="lf-img"><span>PRODUCT</span></div>
-                <div class="lf-prod-body">
-                  <div class="lf-prod-name">{{ p.name }}</div>
-                  <div class="lf-prod-sub">{{ p.code }}<template v-if="p.supplier"> · {{ p.supplier.name }}</template></div>
-                  <div class="lf-price">
-                    <span v-if="oldPrice(p) != null" class="lf-old">{{ fmt(oldPrice(p)) }}</span>
-                    <span class="lf-new">{{ fmt(bigPrice(p)) }}<span class="lf-cur">PLN</span></span>
-                    <span v-if="discountLabel(p)" class="lf-disc">{{ discountLabel(p) }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="lf-prod-empty">No products assigned</div>
-          </article>
+        <div v-if="pg.promos.length" class="lf-grid" :style="{ gridTemplateColumns: 'repeat(' + colsFor(pg.promos.length) + ', 1fr)' }">
+          <LeafletPromoCell
+            v-for="promo in pg.promos"
+            :key="promo.id"
+            :item="promo.item"
+            :category="promo.categoryName"
+            :hero="pg.promos.length === 1"
+          />
         </div>
         <div v-else class="lf-page-empty">Empty page — no promotions placed here.</div>
       </section>
 
       <!-- promotions not yet placed on a page -->
-      <section v-if="unplaced.length" class="lf-unplaced">
+      <section v-if="viewMode === 'all' && unplaced.length" class="lf-unplaced">
         <div class="lf-unplaced-head">Not placed on a page <span class="lf-unplaced-n">{{ unplaced.length }}</span></div>
         <div class="lf-grid">
-          <article v-for="promo in unplaced" :key="promo.id" class="lf-cell is-unplaced">
-            <div class="lf-cell-top">
-              <span class="lf-cat">{{ promo.categoryName }}</span>
-              <span class="lf-type">{{ promo.typeName }}</span>
-            </div>
-            <div v-if="promo.products.length" class="lf-prods">
-              <div v-for="p in promo.products" :key="p.link_id" class="lf-prod">
-                <div class="lf-img"><span>PRODUCT</span></div>
-                <div class="lf-prod-body">
-                  <div class="lf-prod-name">{{ p.name }}</div>
-                  <div class="lf-prod-sub">{{ p.code }}<template v-if="p.supplier"> · {{ p.supplier.name }}</template></div>
-                  <div class="lf-price">
-                    <span v-if="oldPrice(p) != null" class="lf-old">{{ fmt(oldPrice(p)) }}</span>
-                    <span class="lf-new">{{ fmt(bigPrice(p)) }}<span class="lf-cur">PLN</span></span>
-                    <span v-if="discountLabel(p)" class="lf-disc">{{ discountLabel(p) }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="lf-prod-empty">No products assigned</div>
-          </article>
+          <LeafletPromoCell
+            v-for="promo in unplaced"
+            :key="promo.id"
+            :item="promo.item"
+            :category="promo.categoryName"
+          />
         </div>
       </section>
     </div>
@@ -210,6 +196,18 @@ async function load() {
   font-family: inherit; font-size: 13px; font-weight: 600; padding: 9px 15px; border-radius: 9px;
 }
 .lf-print:hover { background: #4a40c2; }
+
+.lf-views { display: flex; align-items: center; gap: 12px; }
+.lf-seg { display: inline-flex; background: #f0f1f4; border-radius: 9px; padding: 3px; gap: 2px; }
+.lf-seg-btn { border: none; background: transparent; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: #6b7280; padding: 6px 13px; border-radius: 7px; }
+.lf-seg-btn:hover { color: #1a1d23; }
+.lf-seg-btn.active { background: #fff; color: #3f37a8; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.lf-pager { display: inline-flex; align-items: center; gap: 4px; }
+.lf-nav { width: 30px; height: 30px; border: 1px solid #e7e9ee; background: #fff; border-radius: 8px; cursor: pointer; color: #374151; font-size: 15px; line-height: 1; }
+.lf-nav:hover:not(:disabled) { border-color: #cfd3da; }
+.lf-nav:disabled { opacity: 0.4; cursor: default; }
+.lf-pager-lbl { font-size: 13px; font-weight: 600; color: #374151; min-width: 52px; text-align: center; }
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
 .lf-empty {
   max-width: 880px; margin: 0 auto;
@@ -288,7 +286,26 @@ async function load() {
 .lf-unplaced-n { color: #c2c7d0; margin-left: 4px; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
 
 @media (max-width: 760px) {
-  .lf-grid { grid-template-columns: repeat(2, 1fr); }
+  .lf-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* hero: a single promotion fills the page */
+.lf-cell.hero { gap: 0; padding: 0; border: none; }
+.lf-cell.hero .lf-cell-top { padding: 18px 22px 0; }
+.lf-cell.hero .lf-prods { padding: 0 22px 22px; }
+.lf-cell.hero .lf-prod { flex-direction: row; gap: 26px; align-items: center; }
+.lf-cell.hero .lf-img { flex: 0 0 46%; height: 340px; border-radius: 12px; }
+.lf-cell.hero .lf-img span { font-size: 12px; }
+.lf-cell.hero .lf-prod-body { flex: 1 1 auto; min-width: 0; }
+.lf-cell.hero .lf-prod-name { font-size: 30px; letter-spacing: -0.02em; line-height: 1.1; }
+.lf-cell.hero .lf-prod-sub { font-size: 14px; margin-top: 6px; }
+.lf-cell.hero .lf-price { gap: 14px; margin-top: 18px; align-items: baseline; }
+.lf-cell.hero .lf-old { font-size: 20px; }
+.lf-cell.hero .lf-new { font-size: 54px; }
+.lf-cell.hero .lf-disc { font-size: 16px; padding: 4px 12px; border-radius: 8px; }
+@media (max-width: 640px) {
+  .lf-cell.hero .lf-prod { flex-direction: column; align-items: stretch; }
+  .lf-cell.hero .lf-img { flex: none; height: 220px; }
 }
 
 /* print: just the sheets */
