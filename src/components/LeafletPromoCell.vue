@@ -194,7 +194,7 @@ const setTotal = computed<number | null>(() => {
   background-image: repeating-linear-gradient(45deg, #eceef2 0, #eceef2 8px, #f6f7f9 8px, #f6f7f9 16px);
   border: 1px solid #eef0f3; display: flex; align-items: center; justify-content: center;
 }
-.lp-img.sm { height: 108px; }
+.lp-img.sm { height: 124px; }
 .lp-img.wide { height: 120px; }
 .lp-img > span { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.1em; color: #b8bdc7; }
 .lp-qty-badge {
@@ -252,7 +252,7 @@ const setTotal = computed<number | null>(() => {
 /* hero: single promotion fills the page */
 .lp.hero { border: none; padding: 4px 0; gap: 14px; }
 .lp.hero .lp-prod { flex-direction: row; gap: 26px; align-items: center; }
-.lp.hero .lp-img { flex: 0 0 46%; height: 320px; border-radius: 12px; }
+.lp.hero .lp-prod .lp-img { flex: 0 0 46%; height: 320px; border-radius: 12px; }
 .lp.hero .lp-body { flex: 1 1 auto; }
 .lp.hero .lp-name { font-size: 28px; letter-spacing: -0.02em; line-height: 1.1; }
 .lp.hero .lp-sub { font-size: 14px; margin-top: 4px; }
@@ -261,8 +261,8 @@ const setTotal = computed<number | null>(() => {
 .lp.hero .lp-old { font-size: 20px; }
 .lp.hero .lp-percent { font-size: 72px; }
 .lp.hero .lp-disc { font-size: 16px; padding: 4px 12px; }
-.lp.hero .lp-setitem { width: 130px; }
-.lp.hero .lp-img.sm { height: 110px; }
+.lp.hero .lp-setitem { width: 160px; }
+.lp.hero .lp-img.sm { height: 150px; flex: none; }
 @media (max-width: 640px) {
   .lp.hero .lp-prod { flex-direction: column; align-items: stretch; }
   .lp.hero .lp-img { flex: none; height: 220px; }

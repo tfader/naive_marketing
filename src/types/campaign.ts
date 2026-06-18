@@ -74,6 +74,8 @@ export interface CampaignItem {
   new_sale_price: string | number | null
   new_sale_price_manual: boolean
   products_price_sum: string | number | null
+  buy_quantity: number | null
+  pay_quantity: number | null
   products_count: number
   products_status: 'none' | 'incomplete' | 'complete' | 'over'
   product_ids: number[]

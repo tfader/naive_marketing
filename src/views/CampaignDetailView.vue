@@ -126,7 +126,11 @@ const itemForm = ref({
   page_no: null as number | null,
   order_on_page: null as number | null,
   new_sale_price: null as number | null, // empty = auto (sum of products); value = manual override
+  buy_quantity: null as number | null,
+  pay_quantity: null as number | null,
 })
+// Code of the promotion type currently selected in the item dialog (for type-specific fields).
+const itemTypeCode = computed(() => promotionTypes.value.find((t) => t.id === itemForm.value.promotion_type_id)?.code ?? null)
 const editingSetAutoPrice = ref<string | number | null>(null) // current auto sum, shown as hint
 
 const hasPages = computed(() => campaign.value?.campaign_type?.has_pages ?? false)
@@ -326,7 +330,7 @@ function openNewItem(ccId: number) {
   editingItem.value = null
   activeCategoryId.value = ccId
   editingSetAutoPrice.value = null
-  itemForm.value = { promotion_type_id: promotionTypes.value[0]?.id ?? null, name: '', status: 'draft', page_no: null, order_on_page: null, new_sale_price: null }
+  itemForm.value = { promotion_type_id: promotionTypes.value[0]?.id ?? null, name: '', status: 'draft', page_no: null, order_on_page: null, new_sale_price: null, buy_quantity: null, pay_quantity: null }
   showItemModal.value = true
 }
 function openEditItem(item: CampaignItem) {
@@ -341,6 +345,8 @@ function openEditItem(item: CampaignItem) {
     order_on_page: item.order_on_page,
     // Field empty when auto → saving empty keeps it auto; filled only when overridden.
     new_sale_price: item.new_sale_price_manual ? Number(item.new_sale_price) : null,
+    buy_quantity: item.buy_quantity,
+    pay_quantity: item.pay_quantity,
   }
   showItemModal.value = true
 }
@@ -795,6 +801,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                     <span class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="status" label="Status" /><NTag size="small" :bordered="false" :type="ITEM_STATUS_TAG[item.status] ?? 'default'">{{ statusLabel(item.status) }}</NTag></span>
                     <NTag size="small" :bordered="false" :type="PRODUCTS_STATUS_TAG[item.products_status] ?? 'default'">{{ item.products_count }} products{{ item.min_products ? ` / min ${item.min_products}` : '' }}</NTag>
                     <span v-if="hasPages && item.page_no" class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="page_no" label="Page" /><NTag size="small" type="info" :bordered="false">p.{{ item.page_no }} · #{{ item.order_on_page ?? '—' }}</NTag></span>
+                    <NTag v-if="item.promotion_type.code === 'quantity' && item.buy_quantity && item.pay_quantity" size="small" type="warning" :bordered="false">buy {{ item.buy_quantity }} pay {{ item.pay_quantity }}</NTag>
                   </div>
                   <div class="ck-promo-right">
                     <div class="ck-promo-metrics">
@@ -1140,6 +1147,14 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
           </NFormItem>
           <NFormItem label="Status">
             <NSelect v-model:value="itemForm.status" :options="ITEM_STATUS_OPTIONS" />
+          </NFormItem>
+          <NFormItem v-if="itemTypeCode === 'quantity'" label="Buy X pay Y">
+            <NSpace align="center">
+              <span style="font-size:12px;color:#9aa0ab">Buy</span>
+              <NInputNumber v-model:value="itemForm.buy_quantity" :min="1" placeholder="X" style="width: 110px" />
+              <span style="font-size:12px;color:#9aa0ab">pay</span>
+              <NInputNumber v-model:value="itemForm.pay_quantity" :min="1" placeholder="Y" style="width: 110px" />
+            </NSpace>
           </NFormItem>
           <NFormItem v-if="hasPages" label="Page / order on page">
             <NSpace>
