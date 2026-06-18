@@ -125,7 +125,9 @@ const itemForm = ref({
   status: 'draft',
   page_no: null as number | null,
   order_on_page: null as number | null,
+  new_sale_price: null as number | null, // empty = auto (sum of products); value = manual override
 })
+const editingSetAutoPrice = ref<string | number | null>(null) // current auto sum, shown as hint
 
 const hasPages = computed(() => campaign.value?.campaign_type?.has_pages ?? false)
 
@@ -323,18 +325,22 @@ async function deleteCategory(cc: CampaignCategory) {
 function openNewItem(ccId: number) {
   editingItem.value = null
   activeCategoryId.value = ccId
-  itemForm.value = { promotion_type_id: promotionTypes.value[0]?.id ?? null, name: '', status: 'draft', page_no: null, order_on_page: null }
+  editingSetAutoPrice.value = null
+  itemForm.value = { promotion_type_id: promotionTypes.value[0]?.id ?? null, name: '', status: 'draft', page_no: null, order_on_page: null, new_sale_price: null }
   showItemModal.value = true
 }
 function openEditItem(item: CampaignItem) {
   editingItem.value = item
   activeCategoryId.value = item.campaign_category_id
+  editingSetAutoPrice.value = item.new_sale_price // current value (= auto sum when not manual)
   itemForm.value = {
     promotion_type_id: item.promotion_type_id,
     name: item.name ?? '',
     status: item.status,
     page_no: item.page_no,
     order_on_page: item.order_on_page,
+    // Field empty when auto → saving empty keeps it auto; filled only when overridden.
+    new_sale_price: item.new_sale_price_manual ? Number(item.new_sale_price) : null,
   }
   showItemModal.value = true
 }
@@ -789,6 +795,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                     <span class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="status" label="Status" /><NTag size="small" :bordered="false" :type="ITEM_STATUS_TAG[item.status] ?? 'default'">{{ statusLabel(item.status) }}</NTag></span>
                     <NTag size="small" :bordered="false" :type="PRODUCTS_STATUS_TAG[item.products_status] ?? 'default'">{{ item.products_count }} products{{ item.min_products ? ` / min ${item.min_products}` : '' }}</NTag>
                     <span v-if="hasPages && item.page_no" class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="page_no" label="Page" /><NTag size="small" type="info" :bordered="false">p.{{ item.page_no }} · #{{ item.order_on_page ?? '—' }}</NTag></span>
+                    <span v-if="item.promotion_type.code === 'set'" class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="new_sale_price" label="Set sale price" /><NTag size="small" type="success" :bordered="false">Set <MoneyValue :value="item.new_sale_price" /><template v-if="item.new_sale_price_manual"> ✎</template></NTag></span>
                   </div>
                   <div class="ck-promo-right">
                     <div class="ck-promo-metrics">
@@ -1125,6 +1132,21 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
               <NInputNumber v-model:value="itemForm.page_no" :min="1" placeholder="Page" style="width: 120px" />
               <NInputNumber v-model:value="itemForm.order_on_page" :min="1" placeholder="Order" style="width: 120px" />
             </NSpace>
+          </NFormItem>
+          <NFormItem v-if="editingItem" label="Set sale price">
+            <NInputNumber
+              v-model:value="itemForm.new_sale_price"
+              :min="0"
+              :precision="2"
+              :format="formatNumberInput"
+              :parse="parseNumberInput"
+              clearable
+              :placeholder="editingSetAutoPrice == null ? 'Auto = sum of products' : `Auto = ${editingSetAutoPrice}`"
+              style="width: 100%"
+            />
+            <template #feedback>
+              <span style="font-size:12px;color:#9aa0ab">Leave empty = auto (sum of product prices). Enter a value to override (e.g. set/bundle price).</span>
+            </template>
           </NFormItem>
           <NSpace justify="end">
             <NButton @click="showItemModal = false">Cancel</NButton>
