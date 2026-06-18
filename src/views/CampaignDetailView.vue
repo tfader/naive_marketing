@@ -142,26 +142,10 @@ const startWeekday = computed(() => {
   return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(y, m - 1, d).getDay()]
 })
 
-// Carousel navigation: one category visible at a time, prev/next cycle through them.
+// Category selection: all categories shown as pills, currentIndex = the open one.
 const currentIndex = ref(0)
 const categories = computed<CampaignCategory[]>(() => campaign.value?.categories ?? [])
 const currentCategory = computed(() => categories.value[currentIndex.value] ?? null)
-const prevCategory = computed(() => {
-  const n = categories.value.length
-  return n ? categories.value[(currentIndex.value - 1 + n) % n] : null
-})
-const nextCategory = computed(() => {
-  const n = categories.value.length
-  return n ? categories.value[(currentIndex.value + 1) % n] : null
-})
-function goPrev() {
-  const n = categories.value.length
-  if (n) currentIndex.value = (currentIndex.value - 1 + n) % n
-}
-function goNext() {
-  const n = categories.value.length
-  if (n) currentIndex.value = (currentIndex.value + 1) % n
-}
 function catWithProducts(cc: CampaignCategory): number {
   return cc.items.filter((i) => i.products_status === 'complete').length
 }
@@ -235,6 +219,26 @@ function typeLayout(typeId: number) {
 }
 function statusLabel(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// --- Presentational helpers (cockpit redesign) ---
+type MarginBand = 'good' | 'mid' | 'low'
+function marginBand(pct: string | number | null | undefined): MarginBand {
+  const n = toNum(pct)
+  if (n == null) return 'mid'
+  if (n >= 20) return 'good'
+  if (n >= 12) return 'mid'
+  return 'low'
+}
+function gaugeWidth(pct: string | number | null | undefined): string {
+  const n = toNum(pct) ?? 0
+  const clamped = Math.max(0, Math.min(30, n))
+  return ((clamped / 30) * 100).toFixed(1) + '%'
+}
+function marginClass(v: string | number | null | undefined): string {
+  const n = toNum(v)
+  if (n == null) return ''
+  return n > 0 ? 'pos' : n < 0 ? 'neg' : ''
 }
 
 function stageTime(s: { started_at: string | null; completed_at: string | null }): string {
@@ -707,179 +711,199 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
 </script>
 
 <template>
-  <div>
+  <div class="cockpit">
     <NSpin :show="loading">
       <template v-if="campaign">
-        <NCard style="margin-bottom: 16px">
-          <div class="camp-layout">
-            <div class="camp-left">
-              <div class="camp-head">
-                <span class="camp-dot" :style="`background:${headerColor}`"></span>
-                <FieldMeta ref-model="Campaign" :ref-id="campaign.id" :attribute="null" label="Campaign" :size="16" />
-                <span class="chip-comment"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="name" label="Campaign name" :size="16" /><NH2 style="margin: 0">{{ campaign.name }}</NH2></span>
-                <NTag v-if="campaign.campaign_type" size="small">{{ campaign.campaign_type.name }}</NTag>
-                <span class="chip-comment"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="status" label="Status" /><NTag :type="STATUS_TAG[campaign.status] ?? 'default'" size="small">{{ statusLabel(campaign.status) }}</NTag></span>
-                <NButton size="small" tertiary @click="showProcessModal = true">
-                  <template #icon><NIcon><GitNetworkOutline /></NIcon></template>
-                  {{ campaign.current_stage ? `${campaign.current_stage.position}. ${campaign.current_stage.name}` : 'Process' }}
-                </NButton>
-                <NButton size="small" circle tertiary title="Edit campaign" @click="openCampaignEdit">
+        <!-- ===== CAMPAIGN HEADER ===== -->
+        <section class="ck-card ck-header">
+          <div class="ck-head-main">
+            <div class="ck-title-row">
+              <span class="ck-dot" :style="`background:${headerColor}`"></span>
+              <FieldMeta ref-model="Campaign" :ref-id="campaign.id" :attribute="null" label="Campaign" :size="16" />
+              <span class="chip-comment"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="name" label="Campaign name" :size="16" /><NH2 class="ck-h1" style="margin: 0">{{ campaign.name }}</NH2></span>
+              <NTag v-if="campaign.campaign_type" class="ck-type-tag" size="small" :bordered="false">{{ campaign.campaign_type.name }}</NTag>
+              <span class="chip-comment"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="status" label="Status" /><NTag :type="STATUS_TAG[campaign.status] ?? 'default'" size="small" round :bordered="false">{{ statusLabel(campaign.status) }}</NTag></span>
+            </div>
+            <div class="ck-meta-row">
+              <button class="ck-stage" @click="showProcessModal = true">
+                <NIcon class="ck-stage-ico"><GitNetworkOutline /></NIcon>
+                {{ campaign.current_stage ? `${campaign.current_stage.position}. ${campaign.current_stage.name}` : 'Process' }}
+              </button>
+              <span class="ck-meta-chip">Duration <b>{{ durationDays }} days</b></span>
+              <span class="ck-meta-chip">Starts <b>{{ startWeekday }}</b></span>
+              <button class="ck-icon-btn" title="Edit campaign" @click="openCampaignEdit">
+                <NIcon><CreateOutline /></NIcon>
+              </button>
+            </div>
+          </div>
+          <div class="ck-cal">
+            <CampaignMiniCalendar :start="campaign.start_date" :end="campaign.end_date" :color="headerColor" />
+          </div>
+        </section>
+
+        <!-- ===== CAMPAIGN KPI HERO ===== -->
+        <section v-if="campaign.metrics" class="ck-card ck-kpi">
+          <div class="ck-kpi-counts">
+            <div class="ck-count"><span class="ck-count-l">Flow</span><span class="ck-count-v">{{ campaign.process_template?.name ?? '—' }}</span></div>
+            <span class="ck-vsep"></span>
+            <div class="ck-count"><span class="ck-count-l">Promotions</span><span class="ck-count-v mono">{{ campaign.items_count }} / {{ campaign.planned_items_total }}</span></div>
+            <div class="ck-count"><span class="ck-count-l">Categories</span><span class="ck-count-v mono">{{ campaign.categories_count }}</span></div>
+            <div v-if="hasPages" class="ck-count"><span class="ck-count-l">Pages</span><span class="ck-count-v mono"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="pages_count" label="Pages" />{{ campaign.pages_count ?? '—' }}</span></div>
+            <span class="ck-spacer"></span>
+            <NTag v-if="!campaign.metrics.fully_priced" size="small" type="warning" :bordered="false">pricing incomplete</NTag>
+            <span class="ck-totals-lbl">Campaign totals</span>
+          </div>
+          <div class="ck-kpi-row">
+            <div class="ck-kpi-cell">
+              <span class="ck-kpi-l">Est. volume</span>
+              <span class="ck-kpi-v mono">{{ fmt(campaign.metrics.volume) }}</span>
+            </div>
+            <div class="ck-kpi-cell">
+              <span class="ck-kpi-l">Cost</span>
+              <span class="ck-kpi-v mono"><MoneyValue :value="campaign.metrics.cost" /></span>
+            </div>
+            <div class="ck-kpi-cell">
+              <span class="ck-kpi-l">Sales value</span>
+              <span class="ck-kpi-v mono"><MoneyValue :value="campaign.metrics.sales_value" /></span>
+            </div>
+            <div class="ck-kpi-cell">
+              <span class="ck-kpi-l">Margin</span>
+              <span class="ck-kpi-v mono" :class="marginClass(campaign.metrics.margin)"><MoneyValue :value="campaign.metrics.margin" /></span>
+            </div>
+            <div class="ck-kpi-hero" :class="`band-${marginBand(campaign.metrics.margin_pct)}`">
+              <div class="ck-hero-top">
+                <span class="ck-kpi-l">Margin %</span>
+                <span class="ck-hero-v mono">{{ campaign.metrics.margin_pct == null ? '—' : campaign.metrics.margin_pct + '%' }}</span>
+              </div>
+              <div class="ck-gauge"><div class="ck-gauge-fill" :style="`width:${gaugeWidth(campaign.metrics.margin_pct)}`"></div><div class="ck-gauge-target"></div></div>
+              <div class="ck-gauge-scale"><span>0%</span><span>target 20%</span><span>30%</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== CATEGORY PILLS (replaces carousel) ===== -->
+        <section class="ck-cats">
+          <div class="ck-pills">
+            <span class="ck-pills-lbl">Categories</span>
+            <button
+              v-for="(cc, i) in categories"
+              :key="cc.id"
+              class="ck-pill"
+              :class="[`band-${marginBand(cc.metrics.margin_pct)}`, { active: i === currentIndex }]"
+              @click="currentIndex = i"
+            >
+              <span class="ck-pill-bar"></span>
+              <div class="ck-pill-top">
+                <span class="ck-pill-name">{{ cc.name }}</span>
+                <NTag v-if="cc.mixed" size="tiny" type="success" :bordered="false">MIX</NTag>
+                <span class="ck-pill-pct mono">{{ cc.metrics.margin_pct == null ? '—' : cc.metrics.margin_pct + '%' }}</span>
+              </div>
+              <span class="ck-pill-sub">{{ cc.items.length }} / {{ cc.planned_items_count }} promotions</span>
+            </button>
+            <button class="ck-pill-add" @click="openAddCategory">+ Category</button>
+          </div>
+
+          <div v-if="!categories.length" class="empty-cat-card">
+            No categories yet. Add a category to start planning promotions.
+          </div>
+
+          <div v-else-if="currentCategory" class="ck-card ck-cat-panel">
+            <div class="ck-cat-head">
+              <div class="ck-cat-title">
+                <NH2 class="ck-cat-name" style="margin: 0">{{ currentCategory.name }}</NH2>
+                <NTag v-if="currentCategory.mixed" size="small" type="success" :bordered="false">MIX</NTag>
+                <span class="ck-muted">{{ currentCategory.items.length }} / {{ currentCategory.planned_items_count }} promotions</span>
+              </div>
+              <NSpace size="small">
+                <NButton size="small" tertiary @click="openEditCategory(currentCategory)">
                   <template #icon><NIcon><CreateOutline /></NIcon></template>
+                  Edit
                 </NButton>
+                <NPopconfirm @positive-click="() => deleteCategory(currentCategory!)">
+                  <template #trigger><NButton size="small" type="error" tertiary>Remove</NButton></template>
+                  Remove category "{{ currentCategory.name }}" and its promotions?
+                </NPopconfirm>
+              </NSpace>
+            </div>
+
+            <!-- slim category summary -->
+            <div class="ck-summary">
+              <div class="ck-sum"><span class="ck-sum-l">Promotions</span><span class="ck-sum-v mono">{{ currentCategory.items.length }} / {{ currentCategory.planned_items_count }}</span></div>
+              <div class="ck-sum"><span class="ck-sum-l">With products</span><span class="ck-sum-v mono">{{ catWithProducts(currentCategory) }} / {{ currentCategory.items.length }}</span></div>
+              <div class="ck-sum"><span class="ck-sum-l">Products</span><span class="ck-sum-v mono">{{ catTotalProducts(currentCategory) }}</span></div>
+              <span class="ck-vsep"></span>
+              <div class="ck-sum"><span class="ck-sum-l">Est. volume</span><span class="ck-sum-v mono">{{ fmt(currentCategory.metrics.volume) }}</span></div>
+              <div class="ck-sum"><span class="ck-sum-l">Cost</span><span class="ck-sum-v mono"><MoneyValue :value="currentCategory.metrics.cost" /></span></div>
+              <div class="ck-sum"><span class="ck-sum-l">Sales value</span><span class="ck-sum-v mono"><MoneyValue :value="currentCategory.metrics.sales_value" /></span></div>
+              <div class="ck-sum"><span class="ck-sum-l">Margin</span><span class="ck-sum-v mono" :class="marginClass(currentCategory.metrics.margin)"><MoneyValue :value="currentCategory.metrics.margin" /></span></div>
+              <span class="ck-spacer"></span>
+              <div class="ck-sum ck-sum-end">
+                <span class="ck-sum-l">Margin %</span>
+                <span class="ck-sum-pct mono" :class="`txt-${marginBand(currentCategory.metrics.margin_pct)}`">{{ currentCategory.metrics.margin_pct == null ? '—' : currentCategory.metrics.margin_pct + '%' }}</span>
               </div>
-              <div class="camp-meta">
-                <div class="meta"><NTag size="large" round :bordered="false" type="info">Duration — {{ durationDays }} days</NTag></div>
-                <div class="meta"><NTag size="large" round :bordered="false" type="info">Starts at — {{ startWeekday }}</NTag></div>
-              </div>
+              <NTag v-if="currentCategory.items.length && !currentCategory.metrics.fully_priced" size="small" type="warning" :bordered="false">pricing incomplete</NTag>
             </div>
-            <div class="camp-right">
-              <CampaignMiniCalendar :start="campaign.start_date" :end="campaign.end_date" :color="headerColor" />
+
+            <div class="ck-promo-toolbar">
+              <span class="ck-section-lbl">Promotions</span>
+              <NButton type="primary" size="small" @click="openNewItem(currentCategory.id)">+ Promotion</NButton>
             </div>
-          </div>
 
-          <div v-if="campaign.metrics" class="promo-metrics cat-metrics camp-metrics">
-            <div class="pm-group">
-              <span class="pm"><span class="pm-l">Flow</span><span class="pm-v">{{ campaign.process_template?.name ?? '—' }}</span></span>
-              <span class="pm"><span class="pm-l">Promotions</span><span class="pm-v">{{ campaign.items_count }} / {{ campaign.planned_items_total }}</span></span>
-              <span class="pm"><span class="pm-l">Categories</span><span class="pm-v">{{ campaign.categories_count }}</span></span>
-              <span v-if="hasPages" class="pm"><span class="pm-l">Pages</span><span class="pm-v"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="pages_count" label="Pages" />{{ campaign.pages_count ?? '—' }}</span></span>
-              <span class="pm-sep"></span>
-              <span class="pm"><span class="pm-l">Est. volume</span><span class="pm-v">{{ fmt(campaign.metrics.volume) }}</span></span>
-              <span class="pm"><span class="pm-l">Cost</span><span class="pm-v"><MoneyValue :value="campaign.metrics.cost" /></span></span>
-              <span class="pm"><span class="pm-l">Sales value</span><span class="pm-v"><MoneyValue :value="campaign.metrics.sales_value" /></span></span>
-              <span class="pm"><span class="pm-l">Margin</span><span class="pm-v" :class="{ pos: Number(campaign.metrics.margin) > 0, neg: Number(campaign.metrics.margin) < 0 }"><MoneyValue :value="campaign.metrics.margin" /></span></span>
-              <span class="pm"><span class="pm-l">Margin %</span><span class="pm-v" :class="{ pos: Number(campaign.metrics.margin_pct) > 0, neg: Number(campaign.metrics.margin_pct) < 0 }">{{ campaign.metrics.margin_pct == null ? '—' : campaign.metrics.margin_pct + '%' }}</span></span>
-              <NTag v-if="!campaign.metrics.fully_priced" size="small" type="warning">pricing incomplete</NTag>
-            </div>
-          </div>
-        </NCard>
+            <div v-if="!currentCategory.items.length" class="promo-empty">No promotions yet — click "+ Promotion".</div>
 
-        <!-- Categories carousel: one big category card in the centre, arrow nav with neighbour names -->
-        <div class="carousel-bar">
-          <button class="nav-arrow" :class="{ 'nav-hidden': categories.length < 2 }" @click="goPrev">
-            <span class="nav-chevron">‹</span>
-            <span class="nav-name">{{ prevCategory?.name || '' }}</span>
-          </button>
-          <div class="carousel-center">
-            <span v-if="currentCategory" class="carousel-counter">
-              <span class="cc-name">{{ currentCategory.name }}</span>
-              <NTag v-if="currentCategory.mixed" size="small" type="success" :bordered="false">MIX</NTag>
-              <span class="cc-pos">({{ currentIndex + 1 }} / {{ categories.length }})</span>
-            </span>
-            <NButton type="primary" size="tiny" ghost @click="openAddCategory">+ Category</NButton>
-          </div>
-          <button class="nav-arrow nav-arrow-right" :class="{ 'nav-hidden': categories.length < 2 }" @click="goNext">
-            <span class="nav-name">{{ nextCategory?.name || '' }}</span>
-            <span class="nav-chevron">›</span>
-          </button>
-        </div>
-
-        <div v-if="!categories.length" class="empty-cat-card">
-          No categories yet. Add a category to start planning promotions.
-        </div>
-
-        <NCard v-else-if="currentCategory" class="cat-big-card">
-          <template #header-extra>
-            <NSpace size="small">
-              <NButton size="small" tertiary @click="openEditCategory(currentCategory)">
-                <template #icon><NIcon><CreateOutline /></NIcon></template>
-                Edit
-              </NButton>
-              <NPopconfirm @positive-click="() => deleteCategory(currentCategory!)">
-                <template #trigger>
-                  <NButton size="small" type="error" tertiary>Remove category</NButton>
-                </template>
-                Remove category "{{ currentCategory.name }}" and its promotions?
-              </NPopconfirm>
-            </NSpace>
-          </template>
-
-          <div class="promo-metrics cat-metrics">
-            <div class="pm-group">
-              <span class="pm"><span class="pm-l">Promotions</span><span class="pm-v">{{ currentCategory.items.length }} / {{ currentCategory.planned_items_count }}</span></span>
-              <span class="pm"><span class="pm-l">With products</span><span class="pm-v">{{ catWithProducts(currentCategory) }} / {{ currentCategory.items.length }}</span></span>
-              <span class="pm"><span class="pm-l">Products</span><span class="pm-v">{{ catTotalProducts(currentCategory) }}</span></span>
-              <span class="pm-sep"></span>
-              <span class="pm"><span class="pm-l">Est. volume</span><span class="pm-v">{{ fmt(currentCategory.metrics.volume) }}</span></span>
-              <span class="pm"><span class="pm-l">Cost</span><span class="pm-v"><MoneyValue :value="currentCategory.metrics.cost" /></span></span>
-              <span class="pm"><span class="pm-l">Sales value</span><span class="pm-v"><MoneyValue :value="currentCategory.metrics.sales_value" /></span></span>
-              <span class="pm"><span class="pm-l">Margin</span><span class="pm-v" :class="{ pos: Number(currentCategory.metrics.margin) > 0, neg: Number(currentCategory.metrics.margin) < 0 }"><MoneyValue :value="currentCategory.metrics.margin" /></span></span>
-              <span class="pm"><span class="pm-l">Margin %</span><span class="pm-v" :class="{ pos: Number(currentCategory.metrics.margin_pct) > 0, neg: Number(currentCategory.metrics.margin_pct) < 0 }">{{ currentCategory.metrics.margin_pct == null ? '—' : currentCategory.metrics.margin_pct + '%' }}</span></span>
-              <NTag v-if="currentCategory.items.length && !currentCategory.metrics.fully_priced" size="small" type="warning">pricing incomplete</NTag>
-            </div>
-          </div>
-
-          <div class="cat-toolbar">
-            <span></span>
-            <NButton type="primary" size="tiny" ghost @click="openNewItem(currentCategory.id)">+ Promotion</NButton>
-          </div>
-
-          <div v-if="!currentCategory.items.length" class="promo-empty">
-            No promotions yet — click "Add Promotion".
-          </div>
-          <div class="promo-grid">
-            <div v-for="item in currentCategory.items" :key="item.id" class="promo-card">
-              <div class="promo-head">
-                <div class="promo-top-left">
-                  <FieldMeta ref-model="CampaignItem" :ref-id="item.id" :attribute="null" label="Promotion" :size="15" />
-                  <span v-if="item.name" class="chip-comment promo-type"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="name" label="Promotion name" />{{ item.name }}</span>
-                  <span class="promo-type-name">{{ item.promotion_type.name }}</span>
-                  <span class="chip-comment">
-                    <FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="status" label="Status" />
-                    <NTag size="small" :type="ITEM_STATUS_TAG[item.status] ?? 'default'">{{ statusLabel(item.status) }}</NTag>
-                  </span>
-                  <NTag size="small" :type="PRODUCTS_STATUS_TAG[item.products_status] ?? 'default'">
-                    {{ item.products_count }} products{{ item.min_products ? ` / min ${item.min_products}` : '' }}
-                  </NTag>
-                  <span v-if="hasPages && item.page_no" class="chip-comment">
-                    <FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="page_no" label="Page" />
-                    <NTag size="small" type="info">p.{{ item.page_no }} · #{{ item.order_on_page ?? '—' }}</NTag>
-                  </span>
-                </div>
-                <NSpace size="small">
-                  <NButton size="small" circle tertiary title="Add product" @click="openAddProduct(item, currentCategory!)">
-                    <template #icon><NIcon><BagHandleOutline /></NIcon></template>
-                  </NButton>
-                  <NButton size="small" circle tertiary title="Edit promotion" @click="openEditItem(item)">
-                    <template #icon><NIcon><CreateOutline /></NIcon></template>
-                  </NButton>
-                  <NPopconfirm @positive-click="() => deleteItem(item)">
-                    <template #trigger>
-                      <NButton size="small" circle tertiary type="error" title="Delete promotion">
-                        <template #icon><NIcon><TrashOutline /></NIcon></template>
+            <div class="ck-promo-grid">
+              <div v-for="item in currentCategory.items" :key="item.id" class="ck-promo">
+                <div class="ck-promo-head">
+                  <div class="ck-promo-left">
+                    <FieldMeta ref-model="CampaignItem" :ref-id="item.id" :attribute="null" label="Promotion" :size="15" />
+                    <span v-if="item.name" class="chip-comment ck-promo-name"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="name" label="Promotion name" />{{ item.name }}</span>
+                    <span class="ck-promo-type">{{ item.promotion_type.name }}</span>
+                    <span class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="status" label="Status" /><NTag size="small" :bordered="false" :type="ITEM_STATUS_TAG[item.status] ?? 'default'">{{ statusLabel(item.status) }}</NTag></span>
+                    <NTag size="small" :bordered="false" :type="PRODUCTS_STATUS_TAG[item.products_status] ?? 'default'">{{ item.products_count }} products{{ item.min_products ? ` / min ${item.min_products}` : '' }}</NTag>
+                    <span v-if="hasPages && item.page_no" class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="page_no" label="Page" /><NTag size="small" type="info" :bordered="false">p.{{ item.page_no }} · #{{ item.order_on_page ?? '—' }}</NTag></span>
+                  </div>
+                  <div class="ck-promo-right">
+                    <div class="ck-promo-metrics">
+                      <span class="ck-pm"><span class="ck-pm-l">Vol</span><span class="ck-pm-v mono">{{ fmt(item.metrics.volume) }}</span></span>
+                      <span class="ck-pm"><span class="ck-pm-l">Margin</span><span class="ck-pm-v mono" :class="marginClass(item.metrics.margin)"><MoneyValue :value="item.metrics.margin" /></span></span>
+                      <span class="ck-pm"><span class="ck-pm-l">Margin %</span><span class="ck-pm-v mono" :class="`txt-${marginBand(item.metrics.margin_pct)}`">{{ item.metrics.margin_pct == null ? '—' : item.metrics.margin_pct + '%' }}</span></span>
+                      <NTag v-if="item.products.length && !item.metrics.fully_priced" size="tiny" type="warning" :bordered="false">pricing incomplete</NTag>
+                    </div>
+                    <div class="ck-skeleton">
+                      <PromotionSkeleton :layout="typeLayout(item.promotion_type_id)" />
+                    </div>
+                    <NSpace size="small">
+                      <NButton size="small" circle tertiary title="Add product" @click="openAddProduct(item, currentCategory!)">
+                        <template #icon><NIcon><BagHandleOutline /></NIcon></template>
                       </NButton>
-                    </template>
-                    Delete this promotion?
-                  </NPopconfirm>
-                </NSpace>
-              </div>
-
-              <div class="promo-metrics">
-                <div class="pm-group">
-                  <span class="pm"><span class="pm-l">Est. volume</span><span class="pm-v">{{ fmt(item.metrics.volume) }}</span></span>
-                  <span class="pm"><span class="pm-l">Cost</span><span class="pm-v"><MoneyValue :value="item.metrics.cost" /></span></span>
-                  <span class="pm"><span class="pm-l">Sales value</span><span class="pm-v"><MoneyValue :value="item.metrics.sales_value" /></span></span>
-                  <span class="pm"><span class="pm-l">Margin</span><span class="pm-v" :class="{ pos: Number(item.metrics.margin) > 0, neg: Number(item.metrics.margin) < 0 }"><MoneyValue :value="item.metrics.margin" /></span></span>
-                  <span class="pm"><span class="pm-l">Margin %</span><span class="pm-v" :class="{ pos: Number(item.metrics.margin_pct) > 0, neg: Number(item.metrics.margin_pct) < 0 }">{{ item.metrics.margin_pct == null ? '—' : item.metrics.margin_pct + '%' }}</span></span>
-                  <NTag v-if="item.products.length && !item.metrics.fully_priced" size="small" type="warning">pricing incomplete</NTag>
+                      <NButton size="small" circle tertiary title="Edit promotion" @click="openEditItem(item)">
+                        <template #icon><NIcon><CreateOutline /></NIcon></template>
+                      </NButton>
+                      <NPopconfirm @positive-click="() => deleteItem(item)">
+                        <template #trigger>
+                          <NButton size="small" circle tertiary type="error" title="Delete promotion">
+                            <template #icon><NIcon><TrashOutline /></NIcon></template>
+                          </NButton>
+                        </template>
+                        Delete this promotion?
+                      </NPopconfirm>
+                    </NSpace>
+                  </div>
                 </div>
-                <div class="promo-skeleton-mini">
-                  <PromotionSkeleton :layout="typeLayout(item.promotion_type_id)" />
-                </div>
-              </div>
 
-              <NDataTable
-                v-if="item.products.length"
-                :columns="columnsFor(item)"
-                :data="item.products"
-                :row-key="(row) => row.link_id"
-                size="small"
-                :bordered="false"
-              />
-              <div v-else class="promo-products-empty">No products assigned yet</div>
+                <NDataTable
+                  v-if="item.products.length"
+                  :columns="columnsFor(item)"
+                  :data="item.products"
+                  :row-key="(row) => row.link_id"
+                  size="small"
+                  :bordered="false"
+                />
+                <div v-else class="promo-products-empty">No products assigned yet</div>
+              </div>
             </div>
           </div>
-        </NCard>
+        </section>
 
       </template>
     </NSpin>
@@ -1154,38 +1178,661 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
 </template>
 
 <style scoped>
-/* Header */
-.camp-layout {
+/* =========================================================
+   Cockpit redesign — IBM Plex, margin-driven colour system
+   ========================================================= */
+.cockpit {
+  margin: -24px;
+  padding: 24px;
+  background: #eceef2;
+  min-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #1a1d23;
+}
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.ck-card {
+  background: #fff;
+  border: 1px solid #e7e9ee;
+  border-radius: 14px;
+  margin-bottom: 18px;
+}
+
+/* ---- header ---- */
+.ck-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 24px;
+  gap: 30px;
   flex-wrap: wrap;
+  padding: 22px 24px;
 }
-.camp-left {
+.ck-head-main {
   min-width: 0;
   flex: 1 1 auto;
 }
-.camp-right {
+.ck-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ck-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+.ck-h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.ck-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 15px;
+}
+.ck-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  background: #f5f6f8;
+  border: 1px solid #e7e9ee;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ck-stage:hover {
+  border-color: #cfd3da;
+}
+.ck-stage-ico {
+  font-size: 15px;
+  color: #5b50d6;
+}
+.ck-meta-chip {
+  font-size: 13px;
+  color: #6b7280;
+  background: #fff;
+  border: 1px solid #e7e9ee;
+  padding: 7px 12px;
+  border-radius: 8px;
+}
+.ck-meta-chip b {
+  color: #1a1d23;
+}
+.ck-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e7e9ee;
+  background: #fff;
+  border-radius: 8px;
+  color: #9aa0ab;
+  cursor: pointer;
+}
+.ck-icon-btn:hover {
+  color: #3f37a8;
+  border-color: #cfcbf0;
+}
+.ck-cal {
   flex: 0 0 auto;
 }
-.camp-head {
+
+/* ---- KPI hero ---- */
+.ck-kpi {
+  overflow: hidden;
+}
+.ck-kpi-counts {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #f0f1f4;
+  flex-wrap: wrap;
+}
+.ck-count {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ck-count-l {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+}
+.ck-count-v {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+.ck-vsep {
+  width: 1px;
+  align-self: stretch;
+  background: #eef0f3;
+}
+.ck-spacer {
+  flex: 1;
+}
+.ck-totals-lbl {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b8bdc7;
+  font-weight: 600;
+}
+.ck-kpi-row {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.ck-kpi-cell {
+  flex: 1 1 0;
+  min-width: 170px;
+  padding: 20px 24px;
+  border-right: 1px solid #f0f1f4;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.ck-kpi-l {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+}
+.ck-kpi-v {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.ck-kpi-v.pos {
+  color: #15935b;
+}
+.ck-kpi-v.neg {
+  color: #d83a45;
+}
+.ck-kpi-hero {
+  flex: 1.3 1 0;
+  min-width: 230px;
+  padding: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+}
+.ck-kpi-hero.band-good {
+  background: #eef6f1;
+}
+.ck-kpi-hero.band-mid {
+  background: #faf3e6;
+}
+.ck-kpi-hero.band-low {
+  background: #fceeef;
+}
+.ck-hero-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ck-hero-v {
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.band-good .ck-hero-v {
+  color: #15935b;
+}
+.band-mid .ck-hero-v {
+  color: #c98410;
+}
+.band-low .ck-hero-v {
+  color: #d83a45;
+}
+.ck-gauge {
+  height: 8px;
+  border-radius: 5px;
+  position: relative;
+  overflow: hidden;
+}
+.band-good .ck-gauge {
+  background: #d6e9df;
+}
+.band-mid .ck-gauge {
+  background: #efe2c8;
+}
+.band-low .ck-gauge {
+  background: #f3d4d7;
+}
+.ck-gauge-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+}
+.band-good .ck-gauge-fill {
+  background: #15935b;
+}
+.band-mid .ck-gauge-fill {
+  background: #c98410;
+}
+.band-low .ck-gauge-fill {
+  background: #d83a45;
+}
+.ck-gauge-target {
+  position: absolute;
+  left: 66.7%;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.ck-gauge-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: #9aa0ab;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* ---- category pills ---- */
+.ck-cats {
+  margin-bottom: 18px;
+}
+.ck-pills {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.ck-pills-lbl {
+  align-self: center;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+  margin-right: 2px;
+}
+.ck-pill {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 158px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e7e9ee;
+  border-radius: 12px;
+  padding: 13px 16px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ck-pill:hover {
+  border-color: #cfd3da;
+}
+.ck-pill.active {
+  border-color: #5b50d6;
+  box-shadow: inset 0 0 0 1px #5b50d6;
+}
+.ck-pill-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+.ck-pill.band-good .ck-pill-bar {
+  background: #15935b;
+}
+.ck-pill.band-mid .ck-pill-bar {
+  background: #c98410;
+}
+.ck-pill.band-low .ck-pill-bar {
+  background: #d83a45;
+}
+.ck-pill-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.ck-pill-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ck-pill-pct {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.ck-pill.band-good .ck-pill-pct {
+  color: #0f7a4a;
+  background: #e3f4ec;
+}
+.ck-pill.band-mid .ck-pill-pct {
+  color: #9a6608;
+  background: #f7eedb;
+}
+.ck-pill.band-low .ck-pill-pct {
+  color: #b32630;
+  background: #fbe7e8;
+}
+.ck-pill-sub {
+  font-size: 11.5px;
+  color: #9aa0ab;
+}
+.ck-pill-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px dashed #cfd3da;
+  border-radius: 12px;
+  padding: 0 18px;
+  color: #5b50d6;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ck-pill-add:hover {
+  border-color: #5b50d6;
+  background: #f7f6fe;
+}
+
+/* ---- category panel ---- */
+.ck-cat-panel {
+  padding: 22px 24px;
+}
+.ck-cat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.ck-cat-title {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.camp-dot {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
+.ck-cat-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
-.camp-meta {
+.ck-muted {
+  font-size: 12.5px;
+  color: #9aa0ab;
+}
+
+/* ---- slim category summary ---- */
+.ck-summary {
   display: flex;
+  align-items: center;
+  background: #f6f7f9;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+  padding: 13px 6px;
   flex-wrap: wrap;
-  gap: 28px;
-  margin-top: 14px;
+  margin-bottom: 18px;
 }
+.ck-sum {
+  padding: 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ck-sum-end {
+  align-items: flex-end;
+}
+.ck-sum-l {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+}
+.ck-sum-v {
+  font-size: 14px;
+  font-weight: 700;
+}
+.ck-sum-v.pos {
+  color: #15935b;
+}
+.ck-sum-v.neg {
+  color: #d83a45;
+}
+.ck-sum-pct {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ---- promotions ---- */
+.ck-promo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.ck-section-lbl {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+}
+.ck-promo-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ck-promo {
+  border: 1px solid #eef0f3;
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ck-promo:hover {
+  border-color: #e0e2e8;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+.ck-promo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ck-promo-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ck-promo-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.ck-promo-type {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.ck-promo-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ck-promo-metrics {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.ck-pm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.ck-pm-l {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+}
+.ck-pm-v {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+.ck-pm-v.pos {
+  color: #15935b;
+}
+.ck-pm-v.neg {
+  color: #d83a45;
+}
+.ck-skeleton {
+  flex: 0 0 auto;
+  transform: scale(0.62);
+  transform-origin: right center;
+}
+
+/* margin band text colours */
+.txt-good {
+  color: #15935b;
+}
+.txt-mid {
+  color: #c98410;
+}
+.txt-low {
+  color: #d83a45;
+}
+
+/* ---- product table restyle ---- */
+.ck-promo :deep(.n-data-table) {
+  font-variant-numeric: tabular-nums;
+}
+.ck-promo :deep(.n-data-table-th) {
+  background: #f6f7f9;
+}
+.ck-promo :deep(.n-data-table-th__title) {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9aa0ab;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ck-promo :deep(.n-data-table-td) {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ck-promo :deep(.tcell-name),
+.ck-promo :deep(.tcell-sub) {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+/* shared value colouring (used inside NDataTable render fns) */
+:deep(.pos) {
+  color: #15935b;
+}
+:deep(.neg) {
+  color: #d83a45;
+}
+
+/* table cell helpers (kept) */
+.cell-comment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.tcell-product {
+  min-width: 0;
+}
+.tcell-click {
+  cursor: pointer;
+}
+.tcell-click:hover .tcell-name {
+  color: #5b50d6;
+  text-decoration: underline;
+}
+.tcell-name {
+  font-weight: 600;
+  color: #1a1d23;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tcell-sub {
+  font-size: 11px;
+  color: #9aa0ab;
+}
+.chip-comment {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* states */
+.empty-cat-card {
+  margin-bottom: 18px;
+  text-align: center;
+  color: #9aa0ab;
+  padding: 40px;
+  border: 1px dashed #d7dae1;
+  border-radius: 12px;
+  background: #fff;
+}
+.promo-empty {
+  color: #9aa0ab;
+  padding: 8px 0;
+}
+.promo-products-empty {
+  color: #b8bdc7;
+  font-size: 13px;
+  font-style: italic;
+}
+.mix-hint {
+  font-size: 12px;
+  color: #9aa0ab;
+  margin: -6px 0 14px;
+}
+
+/* =========================================================
+   Modal styles (kept from original)
+   ========================================================= */
 .meta {
   display: flex;
   flex-direction: column;
@@ -1197,8 +1844,6 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   font-weight: 600;
   color: #333;
 }
-
-/* Add-product dialog */
 .ap-prices {
   display: flex;
   flex-wrap: wrap;
@@ -1221,8 +1866,6 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   gap: 12px;
   margin-top: 14px;
 }
-
-/* Supplier conditions dialog */
 .cond-list {
   display: flex;
   flex-direction: column;
@@ -1273,264 +1916,10 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   grid-template-columns: 2fr 1fr 1.3fr 1.5fr;
   gap: 10px;
 }
-
-/* Carousel */
-.carousel-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.carousel-center {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.carousel-counter {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.cc-name {
-  font-size: 18px;
-  font-weight: 700;
-  color: #333;
-}
-.cc-pos {
-  font-size: 12px;
-  color: #999;
-}
-.nav-arrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #fff;
-  border: 1px solid #efeff5;
-  border-radius: 8px;
-  padding: 8px 14px;
-  cursor: pointer;
-  color: #555;
-  font-size: 14px;
-  max-width: 240px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.nav-arrow:hover:not(:disabled) {
-  border-color: #c9c9d6;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-.nav-arrow.nav-hidden {
-  visibility: hidden;
-}
-.nav-arrow-right {
-  flex-direction: row;
-}
-.nav-chevron {
-  font-size: 20px;
-  line-height: 1;
-  color: #888;
-}
-.nav-name {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Big centred category card */
-.cat-big-card {
-  margin-bottom: 16px;
-}
-.empty-cat-card {
-  margin-bottom: 16px;
-  text-align: center;
-  color: #aaa;
-  padding: 40px;
-  border: 1px dashed #e0e0ea;
-  border-radius: 10px;
-}
-.cat-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 16px 0;
-}
-.cat-card-stats {
-  display: flex;
-  gap: 36px;
-}
-.stat {
-  display: flex;
-  flex-direction: column;
-}
-.stat-val {
-  font-size: 18px;
-  font-weight: 700;
-  color: #333;
-}
 .stat-lbl {
   font-size: 11px;
   color: #999;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-.promo-empty {
-  color: #aaa;
-  padding: 8px 0;
-}
-.mix-hint {
-  font-size: 12px;
-  color: #999;
-  margin: -6px 0 14px;
-}
-.promo-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.promo-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  border: 1px solid #efeff5;
-  border-radius: 10px;
-  padding: 16px 18px;
-  background: #fff;
-  transition: box-shadow 0.15s, border-color 0.15s;
-}
-.promo-card:hover {
-  border-color: #e0e0ea;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-}
-.promo-products-empty {
-  color: #bbb;
-  font-size: 13px;
-  font-style: italic;
-}
-.promo-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.promo-top-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.chip-comment {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.promo-type {
-  font-weight: 600;
-  font-size: 15px;
-}
-.promo-type-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: #555;
-}
-.promo-metrics {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  background: #f7f8fa;
-  border-radius: 8px;
-  padding: 8px 14px;
-}
-.cat-metrics {
-  justify-content: flex-start;
-  gap: 24px;
-  background: #eef1f6;
-  margin-bottom: 14px;
-  padding: 12px 16px;
-}
-.camp-metrics {
-  margin-top: 18px;
-  margin-bottom: 0;
-}
-.pm-sep {
-  width: 1px;
-  align-self: stretch;
-  background: #d6dbe4;
-  margin: 2px 0;
-}
-.pm-group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  flex: 1;
-  justify-content: space-between;
-}
-.pm {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  text-align: right;
-}
-.pm-l {
-  font-size: 9px;
-  color: #9aa1ad;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.pm-v {
-  font-size: 15px;
-  font-weight: 700;
-  color: #2b2b33;
-  font-variant-numeric: tabular-nums;
-}
-.pm-v.pos {
-  color: #18a058;
-}
-.pm-v.neg {
-  color: #f0a020;
-}
-.promo-skeleton-mini {
-  flex: 0 0 auto;
-  transform: scale(0.62);
-  transform-origin: right center;
-}
-.cell-comment {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.tcell-product {
-  min-width: 0;
-}
-.tcell-click {
-  cursor: pointer;
-}
-.tcell-click:hover .tcell-name {
-  color: #16a34a;
-  text-decoration: underline;
-}
-.tcell-name {
-  font-weight: 600;
-  color: #2b2b33;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tcell-sub {
-  font-size: 11px;
-  color: #9aa0ab;
-}
-:deep(.pos) {
-  color: #18a058;
-}
-:deep(.neg) {
-  color: #f0a020;
-}
-.promo-card :deep(.n-data-table-td),
-.promo-card :deep(.n-data-table-th__title) {
-  white-space: nowrap;
 }
 </style>
