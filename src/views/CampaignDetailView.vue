@@ -795,7 +795,6 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                     <span class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="status" label="Status" /><NTag size="small" :bordered="false" :type="ITEM_STATUS_TAG[item.status] ?? 'default'">{{ statusLabel(item.status) }}</NTag></span>
                     <NTag size="small" :bordered="false" :type="PRODUCTS_STATUS_TAG[item.products_status] ?? 'default'">{{ item.products_count }} products{{ item.min_products ? ` / min ${item.min_products}` : '' }}</NTag>
                     <span v-if="hasPages && item.page_no" class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="page_no" label="Page" /><NTag size="small" type="info" :bordered="false">p.{{ item.page_no }} · #{{ item.order_on_page ?? '—' }}</NTag></span>
-                    <span v-if="item.promotion_type.code === 'set'" class="chip-comment"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="new_sale_price" label="Set sale price" /><NTag size="small" type="success" :bordered="false">Set <MoneyValue :value="item.new_sale_price" /><template v-if="item.new_sale_price_manual"> ✎</template></NTag></span>
                   </div>
                   <div class="ck-promo-right">
                     <div class="ck-promo-metrics">
@@ -824,6 +823,21 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                       </NPopconfirm>
                     </NSpace>
                   </div>
+                </div>
+
+                <div v-if="item.promotion_type.code === 'set'" class="ck-set-banner">
+                  <div class="ck-set-cell">
+                    <span class="ck-set-lbl">Products total</span>
+                    <span class="ck-set-sum mono" :class="{ 'ck-strike': item.new_sale_price_manual && Number(item.products_price_sum) !== Number(item.new_sale_price) }"><MoneyValue :value="item.products_price_sum" /></span>
+                  </div>
+                  <span class="ck-set-arrow">→</span>
+                  <div class="ck-set-cell ck-set-cell-main">
+                    <span class="ck-set-lbl">Set price<span v-if="item.new_sale_price_manual" class="ck-set-manual">manual</span></span>
+                    <span class="ck-set-val mono"><FieldMeta ref-model="CampaignItem" :ref-id="item.id" attribute="new_sale_price" label="Set sale price" /><MoneyValue :value="item.new_sale_price" /></span>
+                  </div>
+                  <span v-if="item.new_sale_price_manual && Number(item.products_price_sum) > Number(item.new_sale_price)" class="ck-set-save mono">
+                    −<MoneyValue :value="Number(item.products_price_sum) - Number(item.new_sale_price)" />
+                  </span>
                 </div>
 
                 <div v-if="item.products.length" class="ck-prod-list">
@@ -1864,6 +1878,72 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   .ck-cal { align-self: flex-start; }
   .ck-summary { padding: 13px 0; }
   .ck-sum { padding: 6px 14px; }
+}
+
+/* ---- SET price banner ---- */
+.ck-set-banner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 20px;
+  background: #f3f2fd;
+  border: 1px solid #e2dffb;
+  border-radius: 12px;
+}
+.ck-set-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ck-set-lbl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9aa0ab;
+}
+.ck-set-manual {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 700;
+  color: #5b50d6;
+  background: #e2dffb;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+.ck-set-sum {
+  font-size: 17px;
+  font-weight: 600;
+  color: #6b7280;
+}
+.ck-set-sum.ck-strike {
+  text-decoration: line-through;
+  color: #b8bdc7;
+}
+.ck-set-arrow {
+  font-size: 18px;
+  color: #b8bdc7;
+}
+.ck-set-cell-main .ck-set-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #3f37a8;
+}
+.ck-set-save {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 700;
+  color: #15935b;
+  background: #e3f4ec;
+  padding: 5px 11px;
+  border-radius: 8px;
 }
 
 /* ---- product list (2 lines per row) ---- */
