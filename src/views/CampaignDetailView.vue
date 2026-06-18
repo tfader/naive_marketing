@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, h } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   NH2,
@@ -21,14 +21,13 @@ import {
   NCheckbox,
   NDatePicker,
   NPopconfirm,
-  NDataTable,
   useMessage,
 } from 'naive-ui'
-import type { SelectOption, DataTableColumns } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import api from '../api/client'
 import PromotionSkeleton from '../components/PromotionSkeleton.vue'
 import CampaignMiniCalendar from '../components/CampaignMiniCalendar.vue'
-import { BagHandleOutline, CreateOutline, TrashOutline, CloseOutline, GitNetworkOutline, EyeOutline } from '@vicons/ionicons5'
+import { BagHandleOutline, CreateOutline, TrashOutline, CloseOutline, GitNetworkOutline, EyeOutline, NewspaperOutline } from '@vicons/ionicons5'
 import { setBreadcrumbs, clearBreadcrumbs } from '../composables/breadcrumbs'
 import { loadParameters, formatNumber, formatNumberInput, parseNumberInput } from '../composables/parameters'
 import MoneyValue from '../components/MoneyValue.vue'
@@ -78,6 +77,7 @@ const campaignForm = ref({
   pages_count: null as number | null,
   start_date: null as string | null,
   end_date: null as string | null,
+  target_margin: 10 as number | null,
 })
 
 const CAMPAIGN_STATUS_OPTIONS: SelectOption[] = [
@@ -95,6 +95,7 @@ function openCampaignEdit() {
     pages_count: c.pages_count ?? null,
     start_date: c.start_date,
     end_date: c.end_date,
+    target_margin: c.target_margin == null ? 10 : Number(c.target_margin),
   }
   showCampaignEditModal.value = true
 }
@@ -146,6 +147,12 @@ const startWeekday = computed(() => {
 const currentIndex = ref(0)
 const categories = computed<CampaignCategory[]>(() => campaign.value?.categories ?? [])
 const currentCategory = computed(() => categories.value[currentIndex.value] ?? null)
+// Health summary across all categories, bucketed by margin band.
+const catBands = computed(() => {
+  const acc = { good: 0, mid: 0, low: 0 }
+  for (const cc of categories.value) acc[marginBand(cc.metrics.margin_pct)]++
+  return acc
+})
 function catWithProducts(cc: CampaignCategory): number {
   return cc.items.filter((i) => i.products_status === 'complete').length
 }
@@ -170,6 +177,8 @@ const productItem = ref<CampaignItem | null>(null)
 const categoryProducts = ref<CatalogProduct[]>([])
 const addProductId = ref<number | null>(null)
 const addPromotionFactor = ref<number>(100)
+const addDiscountPercent = ref<number | null>(null)
+const addNewPrice = ref<number | null>(null)
 
 // Products from the category that aren't yet on this item.
 const addProductOptions = computed<SelectOption[]>(() => {
@@ -223,17 +232,20 @@ function statusLabel(s: string): string {
 
 // --- Presentational helpers (cockpit redesign) ---
 type MarginBand = 'good' | 'mid' | 'low'
+// Per-campaign target margin (%) drives the colour bands and gauge. Default 10.
+const targetMargin = computed(() => Number(campaign.value?.target_margin ?? 10) || 10)
+const gaugeMax = computed(() => targetMargin.value * 1.5)
 function marginBand(pct: string | number | null | undefined): MarginBand {
   const n = toNum(pct)
   if (n == null) return 'mid'
-  if (n >= 20) return 'good'
-  if (n >= 12) return 'mid'
+  if (n >= targetMargin.value) return 'good'
+  if (n >= targetMargin.value * 0.6) return 'mid'
   return 'low'
 }
 function gaugeWidth(pct: string | number | null | undefined): string {
   const n = toNum(pct) ?? 0
-  const clamped = Math.max(0, Math.min(30, n))
-  return ((clamped / 30) * 100).toFixed(1) + '%'
+  const clamped = Math.max(0, Math.min(gaugeMax.value, n))
+  return ((clamped / gaugeMax.value) * 100).toFixed(1) + '%'
 }
 function marginClass(v: string | number | null | undefined): string {
   const n = toNum(v)
@@ -362,6 +374,8 @@ async function openAddProduct(item: CampaignItem, cc: CampaignCategory) {
   productItem.value = item
   addProductId.value = null
   addPromotionFactor.value = 100
+  addDiscountPercent.value = null
+  addNewPrice.value = null
   categoryProducts.value = []
   showProductsModal.value = true
   try {
@@ -380,6 +394,8 @@ async function addProduct() {
     await api.post(itemProductsUrl(it), {
       product_id: addProductId.value,
       promotion_factor: addPromotionFactor.value,
+      discount_percent: addDiscountPercent.value,
+      new_price: addNewPrice.value,
     })
     message.success('Product added')
     showProductsModal.value = false
@@ -439,109 +455,12 @@ async function patchProduct(item: CampaignItem, row: PromotionProduct, payload: 
   }
 }
 
-// Inline (not scoped) so it applies inside NDataTable's own render context.
-const CELL_COMMENT_STYLE = 'display:inline-flex;align-items:center;justify-content:flex-end;gap:5px'
-
-function columnsFor(item: CampaignItem): DataTableColumns<PromotionProduct> {
-  return [
-    {
-      title: 'Product',
-      key: 'product',
-      minWidth: 200,
-      render: (row) =>
-        h('div', { class: 'tcell-product tcell-click', title: 'Preview product', onClick: () => openPreview(item, row) }, [
-          h('div', { class: 'tcell-name', title: row.name }, row.name),
-          h('div', { class: 'tcell-sub' }, row.code + (row.supplier ? ` · ${row.supplier.name}` : '')),
-        ]),
-    },
-    {
-      title: 'Sale price',
-      key: 'sale',
-      width: 124,
-      align: 'right',
-      render: (row) =>
-        h('span', { class: 'cell-comment', style: CELL_COMMENT_STYLE }, [
-          h(FieldMeta, { refModel: 'CampaignItemProduct', refId: row.link_id, attribute: 'current_sale_price', label: 'Sale price' }),
-          h(MoneyValue, { value: row.current_sale_price }),
-        ]),
-    },
-    {
-      title: 'Disc %',
-      key: 'discount_percent',
-      width: 104,
-      align: 'right',
-      render: (row) =>
-        h('span', { class: 'cell-comment', style: CELL_COMMENT_STYLE }, [
-          h(FieldMeta, { refModel: 'CampaignItemProduct', refId: row.link_id, attribute: 'discount_percent', label: 'Discount %' }),
-          h('span', row.discount_percent == null ? '—' : `${row.discount_percent}%`),
-        ]),
-    },
-    {
-      title: 'New price',
-      key: 'new_price',
-      width: 124,
-      align: 'right',
-      render: (row) =>
-        h('span', { class: 'cell-comment', style: CELL_COMMENT_STYLE }, [
-          h(FieldMeta, { refModel: 'CampaignItemProduct', refId: row.link_id, attribute: 'new_price', label: 'New price' }),
-          h(MoneyValue, { value: row.new_price }),
-        ]),
-    },
-    { title: 'Est. volume', key: 'estimated_volume', width: 104, align: 'right', render: (row) => fmt(row.estimated_volume) },
-    { title: 'Cost', key: 'product_cost', width: 124, align: 'right', render: (row) => h(MoneyValue, { value: row.product_cost }) },
-    { title: 'Sales value', key: 'product_sales_value', width: 124, align: 'right', render: (row) => h(MoneyValue, { value: row.product_sales_value }) },
-    { title: 'Margin', key: 'margin', width: 124, align: 'right', render: (row) => renderMargin(row) },
-    {
-      title: '',
-      key: 'actions',
-      width: 108,
-      render: (row) =>
-        h(NSpace, { size: 4, wrapItem: false, justify: 'end' }, () => [
-          h(
-            NButton,
-            {
-              size: 'tiny',
-              quaternary: true,
-              circle: true,
-              title: 'Preview product',
-              onClick: () => openPreview(item, row),
-            },
-            { icon: () => h(NIcon, null, () => h(EyeOutline)) }
-          ),
-          h(
-            NButton,
-            {
-              size: 'tiny',
-              quaternary: true,
-              circle: true,
-              title: `Edit (factor, ${row.conditions.length} conditions)`,
-              onClick: () => openEditProduct(item, row),
-            },
-            { icon: () => h(NIcon, null, () => h(CreateOutline)) }
-          ),
-          h(
-            NButton,
-            {
-              size: 'tiny',
-              quaternary: true,
-              circle: true,
-              type: 'error',
-              title: 'Remove product',
-              onClick: () => removeProductFromItem(item, row.link_id),
-            },
-            { icon: () => h(NIcon, null, () => h(CloseOutline)) }
-          ),
-        ]),
-    },
-  ]
-}
-
-function renderMargin(row: PromotionProduct) {
+// Product margin (sales value − cost) for the 2-line product rows.
+function productMargin(row: PromotionProduct): number | null {
   const v = toNum(row.product_sales_value)
   const c = toNum(row.product_cost)
-  if (v == null || c == null) return '—'
-  const m = v - c
-  return h('span', { class: m > 0 ? 'pos' : m < 0 ? 'neg' : '' }, h(MoneyValue, { value: m }))
+  if (v == null || c == null) return null
+  return v - c
 }
 
 // --- Edit product in promotion (promotion_factor + supplier purchase conditions) ---
@@ -614,7 +533,7 @@ async function patchEditCip(payload: Record<string, unknown>) {
 
 async function addCondition() {
   const url = cipUrl()
-  if (!url || conditionForm.value.supplier_id == null) return
+  if (!url || conditionForm.value.supplier_id == null || conditionForm.value.purchase_price == null) return
   try {
     await api.post(`${url}/conditions`, conditionForm.value)
     message.success('Condition added')
@@ -715,7 +634,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
     <NSpin :show="loading">
       <template v-if="campaign">
         <!-- ===== CAMPAIGN HEADER ===== -->
-        <section class="ck-card ck-header">
+        <section class="ck-card ck-header" :style="{ borderTop: '3px solid ' + headerColor }">
           <div class="ck-head-main">
             <div class="ck-title-row">
               <span class="ck-dot" :style="`background:${headerColor}`"></span>
@@ -728,6 +647,10 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
               <button class="ck-stage" @click="showProcessModal = true">
                 <NIcon class="ck-stage-ico"><GitNetworkOutline /></NIcon>
                 {{ campaign.current_stage ? `${campaign.current_stage.position}. ${campaign.current_stage.name}` : 'Process' }}
+              </button>
+              <button class="ck-stage" @click="$router.push({ name: 'CampaignLeaflet', params: { id: campaign.id } })">
+                <NIcon class="ck-stage-ico"><NewspaperOutline /></NIcon>
+                Leaflet preview
               </button>
               <span class="ck-meta-chip">Duration <b>{{ durationDays }} days</b></span>
               <span class="ck-meta-chip">Starts <b>{{ startWeekday }}</b></span>
@@ -776,7 +699,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                 <span class="ck-hero-v mono">{{ campaign.metrics.margin_pct == null ? '—' : campaign.metrics.margin_pct + '%' }}</span>
               </div>
               <div class="ck-gauge"><div class="ck-gauge-fill" :style="`width:${gaugeWidth(campaign.metrics.margin_pct)}`"></div><div class="ck-gauge-target"></div></div>
-              <div class="ck-gauge-scale"><span>0%</span><span>target 20%</span><span>30%</span></div>
+              <div class="ck-gauge-scale"><span>0%</span><span>target {{ targetMargin }}%</span><span>{{ gaugeMax }}%</span></div>
             </div>
           </div>
         </section>
@@ -785,6 +708,11 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
         <section class="ck-cats">
           <div class="ck-pills">
             <span class="ck-pills-lbl">Categories</span>
+            <span class="ck-band-summary">
+              <span v-if="catBands.good" class="ck-band-chip is-good"><span class="ck-band-dot"></span>{{ catBands.good }} on target</span>
+              <span v-if="catBands.mid" class="ck-band-chip is-mid"><span class="ck-band-dot"></span>{{ catBands.mid }} watch</span>
+              <span v-if="catBands.low" class="ck-band-chip is-low"><span class="ck-band-dot"></span>{{ catBands.low }} below</span>
+            </span>
             <button
               v-for="(cc, i) in categories"
               :key="cc.id"
@@ -891,14 +819,36 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                   </div>
                 </div>
 
-                <NDataTable
-                  v-if="item.products.length"
-                  :columns="columnsFor(item)"
-                  :data="item.products"
-                  :row-key="(row) => row.link_id"
-                  size="small"
-                  :bordered="false"
-                />
+                <div v-if="item.products.length" class="ck-prod-list">
+                  <div v-for="row in item.products" :key="row.link_id" class="ck-prod">
+                    <div class="ck-prod-l1">
+                      <div class="ck-prod-id tcell-click" title="Preview product" @click="openPreview(item, row)">
+                        <span class="ck-prod-name">{{ row.name }}</span>
+                        <span class="ck-prod-sub">{{ row.code }}<template v-if="row.supplier"> · {{ row.supplier.name }}</template></span>
+                      </div>
+                      <div class="ck-prod-right">
+                        <div class="ck-prod-price">
+                          <span class="chip-comment"><FieldMeta ref-model="CampaignItemProduct" :ref-id="row.link_id" attribute="current_sale_price" label="Sale price" /><span class="ck-old"><MoneyValue :value="row.current_sale_price" /></span></span>
+                          <span class="ck-arrow">→</span>
+                          <span class="chip-comment"><FieldMeta ref-model="CampaignItemProduct" :ref-id="row.link_id" attribute="new_price" label="New price" /><span class="ck-new"><MoneyValue :value="row.new_price" /></span></span>
+                          <span class="chip-comment"><FieldMeta ref-model="CampaignItemProduct" :ref-id="row.link_id" attribute="discount_percent" label="Discount %" /><span v-if="row.discount_percent != null" class="ck-disc">-{{ row.discount_percent }}%</span></span>
+                        </div>
+                        <NSpace size="small">
+                          <NButton size="tiny" quaternary circle title="Preview product" @click="openPreview(item, row)"><template #icon><NIcon><EyeOutline /></NIcon></template></NButton>
+                          <NButton size="tiny" quaternary circle :title="`Edit (factor, ${row.conditions.length} conditions)`" @click="openEditProduct(item, row)"><template #icon><NIcon><CreateOutline /></NIcon></template></NButton>
+                          <NButton size="tiny" quaternary circle type="error" title="Remove product" @click="removeProductFromItem(item, row.link_id)"><template #icon><NIcon><CloseOutline /></NIcon></template></NButton>
+                        </NSpace>
+                      </div>
+                    </div>
+                    <div class="ck-prod-l2">
+                      <div class="ck-stat"><span class="ck-stat-l">Est. volume</span><span class="ck-stat-v mono">{{ fmt(row.estimated_volume) }}</span></div>
+                      <div class="ck-stat"><span class="ck-stat-l">Cost</span><span class="ck-stat-v mono"><MoneyValue :value="row.product_cost" /></span></div>
+                      <div class="ck-stat"><span class="ck-stat-l">Sales value</span><span class="ck-stat-v mono"><MoneyValue :value="row.product_sales_value" /></span></div>
+                      <span class="ck-spacer"></span>
+                      <div class="ck-stat ck-stat-end"><span class="ck-stat-l">Margin</span><span class="ck-stat-v mono" :class="marginClass(productMargin(row))"><MoneyValue :value="productMargin(row)" /></span></div>
+                    </div>
+                  </div>
+                </div>
                 <div v-else class="promo-products-empty">No products assigned yet</div>
               </div>
             </div>
@@ -945,6 +895,9 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
           <NFormItem label="End date">
             <NDatePicker v-model:formatted-value="campaignForm.end_date" type="date" value-format="yyyy-MM-dd" style="width: 100%" />
           </NFormItem>
+          <NFormItem label="Target margin (%)">
+            <NInputNumber v-model:value="campaignForm.target_margin" :min="0" :precision="2" style="width: 100%" />
+          </NFormItem>
           <NFormItem v-if="hasPages" label="Pages">
             <NInputNumber v-model:value="campaignForm.pages_count" :min="1" style="width: 100%" />
           </NFormItem>
@@ -961,7 +914,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
       <NCard
         v-if="previewCip && previewItem"
         title="Product preview"
-        style="width: 880px"
+        style="width: 1080px; max-width: 94vw"
         closable
         @close="showPreviewModal = false"
       >
@@ -1035,7 +988,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
             </NFormItem>
           </div>
           <NSpace justify="end">
-            <NButton type="primary" attr-type="submit" :disabled="conditionForm.supplier_id == null">Add condition</NButton>
+            <NButton type="primary" attr-type="submit" :disabled="conditionForm.supplier_id == null || conditionForm.purchase_price == null">Add condition</NButton>
           </NSpace>
         </NForm>
       </NCard>
@@ -1139,6 +1092,12 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
           <span class="stat-lbl">Promotion factor (%)</span>
           <NInputNumber v-model:value="addPromotionFactor" :min="0" :step="20" :format="formatNumberInput" :parse="parseNumberInput" style="width: 140px" />
           <NText depth="3" style="font-size:12px">expected sales uplift during the promotion</NText>
+        </div>
+        <div class="ap-factor">
+          <span class="stat-lbl">Discount (%)</span>
+          <NInputNumber :value="addDiscountPercent" :min="0" :max="100" :format="formatNumberInput" :parse="parseNumberInput" style="width: 140px" placeholder="—" @update:value="(v) => { addDiscountPercent = v; if (v != null) addNewPrice = null }" />
+          <span class="stat-lbl">New price</span>
+          <NInputNumber :value="addNewPrice" :min="0" :precision="2" :format="formatNumberInput" :parse="parseNumberInput" style="width: 140px" placeholder="—" @update:value="(v) => { addNewPrice = v; if (v != null) addDiscountPercent = null }" />
         </div>
 
         <NSpace justify="end" style="margin-top: 16px">
@@ -1340,8 +1299,8 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
 }
 .ck-kpi-cell {
   flex: 1 1 0;
-  min-width: 170px;
-  padding: 20px 24px;
+  min-width: 205px;
+  padding: 18px 18px;
   border-right: 1px solid #f0f1f4;
   display: flex;
   flex-direction: column;
@@ -1355,9 +1314,10 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   font-weight: 600;
 }
 .ck-kpi-v {
-  font-size: 24px;
+  font-size: 19px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 .ck-kpi-v.pos {
   color: #15935b;
@@ -1544,22 +1504,25 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   color: #9aa0ab;
 }
 .ck-pill-add {
-  display: flex;
+  align-self: center;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  background: #fff;
-  border: 1px dashed #cfd3da;
-  border-radius: 12px;
-  padding: 0 18px;
-  color: #5b50d6;
+  gap: 4px;
+  background: #5b50d6;
+  border: none;
+  border-radius: 9px;
+  padding: 9px 16px;
+  color: #fff;
   font-weight: 600;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
   font-family: inherit;
+  transition: background 0.12s, box-shadow 0.12s;
 }
 .ck-pill-add:hover {
-  border-color: #5b50d6;
-  background: #f7f6fe;
+  background: #4a40c2;
+  box-shadow: 0 2px 8px rgba(91, 80, 214, 0.3);
 }
 
 /* ---- category panel ---- */
@@ -1820,15 +1783,90 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
   padding: 8px 0;
 }
 .promo-products-empty {
-  color: #b8bdc7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border: 1px dashed #e2e5ea;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: #9aa0ab;
   font-size: 13px;
-  font-style: italic;
 }
 .mix-hint {
   font-size: 12px;
   color: #9aa0ab;
   margin: -6px 0 14px;
 }
+
+/* ---- category band-health summary chips ---- */
+.ck-band-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+.ck-band-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.ck-band-chip.is-good { color: #0f7a4a; background: #e3f4ec; }
+.ck-band-chip.is-mid { color: #9a6608; background: #f7eedb; }
+.ck-band-chip.is-low { color: #b32630; background: #fbe7e8; }
+.ck-band-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ---- focus-visible (accessibility) ---- */
+.ck-pill:focus-visible,
+.ck-pill-add:focus-visible,
+.ck-stage:focus-visible,
+.ck-icon-btn:focus-visible {
+  outline: 2px solid #5b50d6;
+  outline-offset: 2px;
+}
+
+/* ---- responsive ---- */
+@media (max-width: 1080px) {
+  .ck-kpi-cell { min-width: 50%; border-bottom: 1px solid #f0f1f4; }
+  .ck-kpi-hero { min-width: 100%; }
+  .ck-promo-head { align-items: flex-start; }
+  .ck-promo-right { width: 100%; justify-content: space-between; }
+}
+@media (max-width: 720px) {
+  .ck-header { flex-direction: column; }
+  .ck-cal { align-self: flex-start; }
+  .ck-summary { padding: 13px 0; }
+  .ck-sum { padding: 6px 14px; }
+}
+
+/* ---- product list (2 lines per row) ---- */
+.ck-prod-list { display: flex; flex-direction: column; }
+.ck-prod { padding: 14px 16px; border-bottom: 1px solid #f4f5f7; }
+.ck-prod:last-child { border-bottom: none; }
+.ck-prod:hover { background: #fafbfc; }
+.ck-prod-l1 { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ck-prod-id { min-width: 0; display: flex; flex-direction: column; gap: 1px; cursor: pointer; }
+.ck-prod-id:hover .ck-prod-name { color: #5b50d6; text-decoration: underline; }
+.ck-prod-name { font-weight: 600; color: #1a1d23; font-size: 14px; }
+.ck-prod-sub { font-size: 11.5px; color: #9aa0ab; }
+.ck-prod-right { display: flex; align-items: center; gap: 16px; flex: 0 0 auto; }
+.ck-prod-price { display: flex; align-items: center; gap: 9px; }
+.ck-old { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #aab0ba; text-decoration: line-through; }
+.ck-arrow { color: #cfd3da; font-size: 13px; }
+.ck-new { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 16px; font-weight: 700; color: #1a1d23; }
+.ck-disc { font-size: 11px; font-weight: 600; color: #3f37a8; background: #f0eefc; padding: 2px 7px; border-radius: 5px; }
+.ck-prod-l2 { display: flex; align-items: center; gap: 34px; margin-top: 11px; padding-top: 11px; border-top: 1px dashed #eef0f3; flex-wrap: wrap; row-gap: 8px; }
+.ck-stat { display: flex; flex-direction: column; gap: 2px; }
+.ck-stat-end { align-items: flex-end; }
+.ck-stat-l { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: #9aa0ab; font-weight: 600; }
+.ck-stat-v { font-size: 13.5px; font-weight: 600; color: #374151; }
+.ck-stat-v.pos { color: #15935b; }
+.ck-stat-v.neg { color: #d83a45; }
 
 /* =========================================================
    Modal styles (kept from original)

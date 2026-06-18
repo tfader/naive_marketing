@@ -135,6 +135,7 @@ export interface Campaign {
   name: string
   status: 'active' | 'completed' | 'cancelled'
   pages_count?: number | null
+  target_margin?: string | number | null
   planned_items_total?: number
   items_count?: number
   categories_count?: number

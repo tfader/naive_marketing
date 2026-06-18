@@ -1,13 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  NH2,
-  NDataTable,
   NButton,
   NSpace,
-  NTag,
-  NText,
   NModal,
   NCard,
   NForm,
@@ -18,12 +14,10 @@ import {
   NColorPicker,
   NSwitch,
   NInputNumber,
-  NRadioGroup,
-  NRadioButton,
   NPopconfirm,
   useMessage,
 } from 'naive-ui'
-import type { DataTableColumns, SelectOption } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import api from '../api/client'
 import type { CalendarEvent, CampaignTypeRef, TemplateRef, StageRef } from '../types/calendar'
 import CalendarYearTimeline from '../components/CalendarYearTimeline.vue'
@@ -119,74 +113,13 @@ const form = ref({
 
 const modalTitle = computed(() => (editingEvent.value ? 'Edit Event' : 'New Event'))
 
-const columns: DataTableColumns<CalendarEvent> = [
-  { title: 'Name', key: 'name', sorter: 'default' },
-  {
-    title: 'Type',
-    key: 'campaign_type',
-    width: 180,
-    render(row) {
-      return h('div', { style: 'display: flex; align-items: center; gap: 8px' }, [
-        h('span', {
-          style: `display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: ${row.color || '#cbd5e1'}`,
-        }),
-        h('span', null, row.campaign_type.name),
-      ])
-    },
-  },
-  {
-    title: 'Flow',
-    key: 'process_template',
-    width: 170,
-    render: (row) => row.process_template
-      ? h(NText, { depth: 3 }, { default: () => row.process_template!.name })
-      : h('span', { style: 'color: #aaa' }, '—'),
-  },
-  {
-    title: 'Status (stage)',
-    key: 'current_stage',
-    width: 200,
-    render(row) {
-      if (row.cancelled) {
-        return h(NTag, { type: 'error', size: 'small' }, { default: () => 'Cancelled' })
-      }
-      if (!row.current_stage) {
-        return h('span', { style: 'color: #aaa' }, '—')
-      }
-      return h(NTag, { type: 'info', size: 'small' }, {
-        default: () => `${row.current_stage!.position}. ${row.current_stage!.name}`,
-      })
-    },
-  },
-  { title: 'Start', key: 'start_date', width: 110, sorter: 'default' },
-  { title: 'End', key: 'end_date', width: 110 },
-  { title: 'Days', key: 'duration_days', width: 70, render: (row) => `${row.duration_days}d` },
-  {
-    title: 'Actions',
-    key: 'actions',
-    width: 230,
-    render(row) {
-      return h(NSpace, { size: 8 }, {
-        default: () => [
-          h(NButton, {
-            size: 'small',
-            type: row.campaign_id ? 'default' : 'primary',
-            onClick: () => launchEvent(row),
-          }, { default: () => (row.campaign_id ? 'Open' : 'Launch') }),
-          h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
-          h(
-            NPopconfirm,
-            { onPositiveClick: () => deleteEvent(row.id) },
-            {
-              trigger: () => h(NButton, { size: 'small', type: 'error' }, { default: () => 'Delete' }),
-              default: () => `Delete "${row.name}"?`,
-            }
-          ),
-        ],
-      })
-    },
-  },
-]
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function fmtDate(s: string | null): string {
+  if (!s) return '—'
+  const [y, m, d] = s.split('-').map(Number)
+  if (!y || !m || !d) return s
+  return `${d} ${MONTHS_SHORT[m - 1]} ${y}`
+}
 
 // Launch a campaign from the event (or open the existing one).
 // If the event's type is a leaflet (has pages), ask how many pages first.
@@ -372,70 +305,67 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
-    <NSpace justify="space-between" align="center" style="margin-bottom: 16px">
-      <NH2 style="margin: 0">Marketing Calendar</NH2>
-      <NButton type="primary" @click="openNew">Add Event</NButton>
-    </NSpace>
+  <div class="cockpit-cal">
+    <div class="cal-head">
+      <h1 class="cal-title">Marketing Calendar</h1>
+      <button class="cal-add" @click="openNew">+ Add Event</button>
+    </div>
 
-    <NSpace align="center" justify="space-between" style="margin-bottom: 16px">
-      <NSpace align="center">
-        <NSelect
-          v-model:value="selectedYear"
-          :options="yearOptions"
-          style="width: 120px"
-          @update:value="loadEvents"
-        />
-        <NSelect
-          v-model:value="selectedType"
-          :options="typeOptions"
-          placeholder="All types"
-          clearable
-          style="width: 200px"
-        />
-        <NSelect
-          v-model:value="selectedStage"
-          :options="stageFilterOptions"
-          placeholder="All stages"
-          clearable
-          style="width: 220px"
-        />
-      </NSpace>
+    <div class="cal-toolbar">
+      <div class="cal-filters">
+        <NSelect v-model:value="selectedYear" :options="yearOptions" style="width: 110px" @update:value="loadEvents" />
+        <NSelect v-model:value="selectedType" :options="typeOptions" placeholder="All types" clearable style="width: 200px" />
+        <NSelect v-model:value="selectedStage" :options="stageFilterOptions" placeholder="All stages" clearable style="width: 220px" />
+      </div>
+      <div class="cal-views">
+        <div class="seg">
+          <button class="seg-btn" :class="{ active: viewMode === 'table' }" @click="viewMode = 'table'">Table</button>
+          <button class="seg-btn" :class="{ active: viewMode === 'calendar' }" @click="viewMode = 'calendar'">Calendar</button>
+        </div>
+        <div v-if="viewMode === 'calendar'" class="seg">
+          <button class="seg-btn" :class="{ active: calendarMode === 'year' }" @click="calendarMode = 'year'">Year</button>
+          <button class="seg-btn" :class="{ active: calendarMode === 'month' }" @click="calendarMode = 'month'">Month</button>
+        </div>
+      </div>
+    </div>
 
-      <NSpace align="center">
-        <NRadioGroup v-model:value="viewMode" size="small">
-          <NRadioButton value="table">Table</NRadioButton>
-          <NRadioButton value="calendar">Calendar</NRadioButton>
-        </NRadioGroup>
-        <NRadioGroup v-if="viewMode === 'calendar'" v-model:value="calendarMode" size="small">
-          <NRadioButton value="year">Year</NRadioButton>
-          <NRadioButton value="month">Month</NRadioButton>
-        </NRadioGroup>
-      </NSpace>
-    </NSpace>
+    <!-- Table view -> redesigned event list -->
+    <div v-if="viewMode === 'table'" class="cal-list">
+      <div v-if="loading" class="cal-empty">Loading…</div>
+      <div v-else-if="!filteredEvents.length" class="cal-empty">No events for {{ selectedYear }}.</div>
+      <div v-for="e in filteredEvents" :key="e.id" class="cal-row">
+        <span class="cal-bar" :style="{ background: e.color || '#cbd5e1' }"></span>
+        <div class="cal-row-main">
+          <div class="cal-row-l1">
+            <span class="cal-name">{{ e.name }}</span>
+            <span class="cal-type">{{ e.campaign_type.name }}</span>
+            <span v-if="e.cancelled" class="cal-tag is-cancel">Cancelled</span>
+            <span v-else-if="e.current_stage" class="cal-tag is-stage">{{ e.current_stage.position }}. {{ e.current_stage.name }}</span>
+          </div>
+          <div class="cal-row-l2">
+            <span class="cal-flow">{{ e.process_template ? e.process_template.name : '—' }}</span>
+            <span class="cal-sep">·</span>
+            <span class="cal-dates mono">{{ fmtDate(e.start_date) }} → {{ fmtDate(e.end_date) }}</span>
+            <span class="cal-days mono">{{ e.duration_days }}d</span>
+          </div>
+        </div>
+        <div class="cal-row-actions">
+          <button class="cal-btn" :class="{ primary: !e.campaign_id }" @click="launchEvent(e)">{{ e.campaign_id ? 'Open' : 'Launch' }}</button>
+          <button class="cal-btn" @click="openEdit(e)">Edit</button>
+          <NPopconfirm @positive-click="() => deleteEvent(e.id)">
+            <template #trigger><button class="cal-btn danger">Delete</button></template>
+            Delete "{{ e.name }}"?
+          </NPopconfirm>
+        </div>
+      </div>
+    </div>
 
-    <NDataTable
-      v-if="viewMode === 'table'"
-      :columns="columns"
-      :data="filteredEvents"
-      :loading="loading"
-      :bordered="true"
-      :single-line="false"
-      :row-key="(row: CalendarEvent) => row.id"
-    />
-    <CalendarYearTimeline
-      v-else-if="calendarMode === 'year'"
-      :events="filteredEvents"
-      :year="selectedYear"
-      @event-click="openEdit"
-    />
-    <CalendarMonthGrid
-      v-else
-      :events="filteredEvents"
-      :year="selectedYear"
-      @event-click="openEdit"
-      @year-change="onYearChange"
-    />
+    <div v-else-if="calendarMode === 'year'" class="cal-canvas">
+      <CalendarYearTimeline :events="filteredEvents" :year="selectedYear" @event-click="openEdit" />
+    </div>
+    <div v-else class="cal-canvas">
+      <CalendarMonthGrid :events="filteredEvents" :year="selectedYear" @event-click="openEdit" @year-change="onYearChange" />
+    </div>
 
     <NModal v-model:show="showLaunchModal">
       <NCard title="Launch leaflet campaign" style="width: 420px" closable @close="showLaunchModal = false">
@@ -512,3 +442,91 @@ onMounted(async () => {
     </NModal>
   </div>
 </template>
+
+<style scoped>
+.cockpit-cal {
+  margin: -24px;
+  padding: 24px;
+  background: #eceef2;
+  min-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #1a1d23;
+}
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.cal-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.cal-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #5b50d6; border: none; border-radius: 9px;
+  padding: 10px 16px; color: #fff; font-weight: 600; font-size: 13.5px;
+  cursor: pointer; font-family: inherit;
+}
+.cal-add:hover { background: #4a40c2; }
+.cal-add:focus-visible { outline: 2px solid #5b50d6; outline-offset: 2px; }
+
+.cal-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap;
+  background: #fff; border: 1px solid #e7e9ee; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 16px;
+}
+.cal-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cal-views { display: flex; align-items: center; gap: 10px; }
+.seg { display: inline-flex; background: #f0f1f4; border-radius: 9px; padding: 3px; gap: 2px; }
+.seg-btn {
+  border: none; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 13px; font-weight: 600; color: #6b7280;
+  padding: 6px 14px; border-radius: 7px;
+}
+.seg-btn:hover { color: #1a1d23; }
+.seg-btn.active { background: #fff; color: #3f37a8; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.seg-btn:focus-visible { outline: 2px solid #5b50d6; outline-offset: 2px; }
+
+.cal-list { display: flex; flex-direction: column; gap: 10px; }
+.cal-empty {
+  background: #fff; border: 1px dashed #d7dae1; border-radius: 12px;
+  padding: 40px; text-align: center; color: #9aa0ab;
+}
+.cal-row {
+  display: flex; align-items: center; gap: 16px;
+  background: #fff; border: 1px solid #e7e9ee; border-radius: 12px;
+  padding: 14px 18px 14px 0; overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cal-row:hover { border-color: #cfd3da; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04); }
+.cal-bar { align-self: stretch; width: 4px; flex: 0 0 auto; }
+.cal-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding-left: 14px; }
+.cal-row-l1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cal-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+.cal-type { font-size: 12.5px; color: #6b7280; }
+.cal-tag { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 6px; white-space: nowrap; }
+.cal-tag.is-stage { color: #3f37a8; background: #f0eefc; }
+.cal-tag.is-cancel { color: #b32630; background: #fbe7e8; }
+.cal-row-l2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: #9aa0ab; }
+.cal-flow { color: #6b7280; }
+.cal-sep { color: #cfd3da; }
+.cal-dates { color: #374151; white-space: nowrap; }
+.cal-days { color: #9aa0ab; }
+.cal-row-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.cal-btn {
+  border: 1px solid #e7e9ee; background: #fff; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: #374151;
+  padding: 6px 12px; border-radius: 8px;
+}
+.cal-btn:hover { border-color: #cfd3da; }
+.cal-btn.primary { background: #5b50d6; border-color: #5b50d6; color: #fff; }
+.cal-btn.primary:hover { background: #4a40c2; }
+.cal-btn.danger { color: #b32630; border-color: #f1d6d8; }
+.cal-btn.danger:hover { background: #fdf1f2; }
+.cal-btn:focus-visible { outline: 2px solid #5b50d6; outline-offset: 2px; }
+
+.cal-canvas { background: #fff; border: 1px solid #e7e9ee; border-radius: 12px; padding: 14px; overflow: hidden; }
+
+@media (max-width: 900px) {
+  .cal-toolbar { flex-direction: column; align-items: stretch; }
+  .cal-row { flex-wrap: wrap; }
+  .cal-row-actions { width: 100%; padding-left: 18px; }
+}
+</style>

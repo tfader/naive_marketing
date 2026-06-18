@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import {
-  NH2,
-  NDataTable,
   NButton,
   NSpace,
-  NTag,
   NModal,
   NCard,
   NForm,
@@ -17,7 +14,7 @@ import {
   NPopconfirm,
   useMessage,
 } from 'naive-ui'
-import type { DataTableColumns, SelectOption } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import api from '../api/client'
 import type { Category } from '../types/category'
 
@@ -56,40 +53,6 @@ const parentOptions = computed<SelectOption[]>(() =>
     .filter((c) => !c.parent_id && c.id !== editingCategory.value?.id)
     .map((c) => ({ label: c.name, value: c.id }))
 )
-
-const columns: DataTableColumns<CategoryRow> = [
-  { title: 'Name', key: 'name' },
-  { title: 'Code', key: 'code', width: 240 },
-  {
-    title: 'Status',
-    key: 'active',
-    width: 100,
-    render(row) {
-      return h(NTag, { type: row.active ? 'success' : 'warning', size: 'small' }, { default: () => (row.active ? 'Active' : 'Inactive') })
-    },
-  },
-  {
-    title: 'Actions',
-    key: 'actions',
-    width: 200,
-    render(row) {
-      return h(NSpace, { size: 8 }, {
-        default: () => [
-          h(NButton, { size: 'small', onClick: () => openNew(row.id) }, { default: () => '+ Sub' }),
-          h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
-          h(
-            NPopconfirm,
-            { onPositiveClick: () => deleteCategory(row.id) },
-            {
-              trigger: () => h(NButton, { size: 'small', type: 'error' }, { default: () => 'Delete' }),
-              default: () => `Delete "${row.name}"?`,
-            }
-          ),
-        ],
-      })
-    },
-  },
-]
 
 function openNew(parentId: number | null = null) {
   editingCategory.value = null
@@ -146,20 +109,54 @@ onMounted(loadCategories)
 </script>
 
 <template>
-  <div>
-    <NSpace justify="space-between" align="center" style="margin-bottom: 16px">
-      <NH2 style="margin: 0">Product Categories</NH2>
-      <NButton type="primary" @click="openNew()">Add Category</NButton>
-    </NSpace>
+  <div class="cockpit-cat">
+    <div class="cat-head">
+      <div>
+        <h1 class="cat-title">Product Categories</h1>
+        <span class="cat-total mono">{{ categories.length }} total</span>
+      </div>
+      <button class="cat-add" @click="openNew()">+ Add category</button>
+    </div>
 
-    <NDataTable
-      :columns="columns"
-      :data="treeData"
-      :loading="loading"
-      :bordered="true"
-      :single-line="false"
-      :row-key="(row: CategoryRow) => row.id"
-    />
+    <div v-if="loading" class="cat-empty">Loading…</div>
+    <div v-else-if="!treeData.length" class="cat-empty">No categories yet.</div>
+    <div v-else class="cat-list">
+      <div v-for="dept in treeData" :key="dept.id" class="cat-dept">
+        <div class="cat-dept-head">
+          <span class="cat-name">{{ dept.name }}</span>
+          <span class="cat-code mono">{{ dept.code }}</span>
+          <span class="cat-status" :class="dept.active ? 'is-on' : 'is-off'">{{ dept.active ? 'Active' : 'Inactive' }}</span>
+          <span v-if="dept.children?.length" class="cat-count mono">{{ dept.children.length }} sub</span>
+          <span class="cat-spacer"></span>
+          <div class="cat-actions">
+            <button class="cat-btn" @click="openNew(dept.id)">+ Sub</button>
+            <button class="cat-btn" @click="openEdit(dept)">Edit</button>
+            <NPopconfirm @positive-click="() => deleteCategory(dept.id)">
+              <template #trigger><button class="cat-btn danger">Delete</button></template>
+              Delete "{{ dept.name }}"?
+            </NPopconfirm>
+          </div>
+        </div>
+
+        <div v-if="dept.children?.length" class="cat-children">
+          <div v-for="ch in dept.children" :key="ch.id" class="cat-child">
+            <span class="cat-child-dot"></span>
+            <span class="cat-child-name">{{ ch.name }}</span>
+            <span class="cat-code mono">{{ ch.code }}</span>
+            <span v-if="!ch.active" class="cat-status is-off">Inactive</span>
+            <span class="cat-spacer"></span>
+            <div class="cat-actions">
+              <button class="cat-btn" @click="openEdit(ch)">Edit</button>
+              <NPopconfirm @positive-click="() => deleteCategory(ch.id)">
+                <template #trigger><button class="cat-btn danger">Delete</button></template>
+                Delete "{{ ch.name }}"?
+              </NPopconfirm>
+            </div>
+          </div>
+        </div>
+        <div v-else class="cat-nochild">No subcategories</div>
+      </div>
+    </div>
 
     <NModal v-model:show="showModal">
       <NCard :title="modalTitle" style="width: 460px" closable @close="showModal = false">
@@ -193,3 +190,65 @@ onMounted(loadCategories)
     </NModal>
   </div>
 </template>
+
+<style scoped>
+.cockpit-cat {
+  margin: -24px;
+  padding: 24px;
+  background: #eceef2;
+  min-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #1a1d23;
+}
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+.cat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.cat-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.cat-total { font-size: 12.5px; color: #9aa0ab; }
+.cat-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #5b50d6; border: none; border-radius: 9px;
+  padding: 10px 16px; color: #fff; font-weight: 600; font-size: 13.5px;
+  cursor: pointer; font-family: inherit;
+}
+.cat-add:hover { background: #4a40c2; }
+
+.cat-list { display: flex; flex-direction: column; gap: 12px; }
+.cat-empty {
+  background: #fff; border: 1px dashed #d7dae1; border-radius: 12px;
+  padding: 40px; text-align: center; color: #9aa0ab;
+}
+.cat-dept { background: #fff; border: 1px solid #e7e9ee; border-radius: 12px; overflow: hidden; }
+.cat-dept-head {
+  display: flex; align-items: center; gap: 11px;
+  padding: 14px 18px; border-bottom: 1px solid #f0f1f4; background: #fafbfc;
+}
+.cat-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.cat-code { font-size: 11.5px; color: #9aa0ab; }
+.cat-status { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+.cat-status.is-on { color: #0f7a4a; background: #e3f4ec; }
+.cat-status.is-off { color: #9a6608; background: #f7eedb; }
+.cat-count { font-size: 11.5px; color: #9aa0ab; }
+.cat-spacer { flex: 1; }
+.cat-actions { display: flex; gap: 6px; }
+.cat-btn {
+  border: 1px solid #e7e9ee; background: #fff; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: #374151;
+  padding: 5px 11px; border-radius: 8px;
+}
+.cat-btn:hover { border-color: #cfd3da; }
+.cat-btn.danger { color: #b32630; border-color: #f1d6d8; }
+.cat-btn.danger:hover { background: #fdf1f2; }
+
+.cat-children { display: flex; flex-direction: column; }
+.cat-child {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 18px 11px 22px; border-bottom: 1px solid #f4f5f7;
+}
+.cat-child:last-child { border-bottom: none; }
+.cat-child:hover { background: #fafbfc; }
+.cat-child-dot { width: 6px; height: 6px; border-radius: 2px; background: #cdd1d8; flex: 0 0 auto; }
+.cat-child-name { font-size: 13.5px; font-weight: 600; }
+.cat-nochild { padding: 12px 18px; font-size: 12.5px; color: #b8bdc7; font-style: italic; }
+</style>

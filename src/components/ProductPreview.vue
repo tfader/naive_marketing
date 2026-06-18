@@ -109,6 +109,15 @@ function marginClass(v: number | null) {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #1a1d23;
+}
+.mono-num,
+.pp-v,
+.pp-fv,
+.pp-cond-vals {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 .pp-head {
   display: flex;
@@ -127,14 +136,15 @@ function marginClass(v: number | null) {
   display: flex;
   align-items: center;
   padding: 12px 16px;
-  background: #fafbfc;
-  border: 1px solid #f0f1f4;
+  background: #f6f7f9;
+  border: 1px solid #eef0f3;
   border-radius: 10px;
 }
 .pp-name {
   font-size: 19px;
   font-weight: 700;
-  color: #1f2430;
+  letter-spacing: -0.01em;
+  color: #1a1d23;
   line-height: 1.2;
 }
 .pp-sub {
@@ -144,15 +154,16 @@ function marginClass(v: number | null) {
 }
 .pp-tags {
   display: flex;
+  align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 .pp-section-title {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #98a0ad;
+  letter-spacing: 0.06em;
+  color: #9aa0ab;
   margin-bottom: 10px;
 }
 .pp-count {
@@ -169,16 +180,18 @@ function marginClass(v: number | null) {
   flex-direction: column;
   align-items: flex-end;
   text-align: right;
-  gap: 3px;
-  padding: 10px 12px;
-  background: #f7f8fa;
-  border-radius: 8px;
+  gap: 4px;
+  padding: 11px 13px;
+  background: #f6f7f9;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
 }
 .pp-l {
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #9aa1ad;
+  letter-spacing: 0.05em;
+  color: #9aa0ab;
 }
 .pp-v {
   display: inline-flex;
@@ -186,15 +199,15 @@ function marginClass(v: number | null) {
   gap: 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #2b2b33;
-  font-variant-numeric: tabular-nums;
+  color: #1a1d23;
 }
 .pp-financials {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  background: #e7ebf0;
-  border-radius: 10px;
+  background: #eef0f3;
+  border: 1px solid #e7e9ee;
+  border-radius: 12px;
   overflow: hidden;
 }
 .pp-fin {
@@ -202,27 +215,28 @@ function marginClass(v: number | null) {
   flex-direction: column;
   align-items: flex-end;
   text-align: right;
-  gap: 4px;
-  padding: 14px 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  gap: 5px;
+  padding: 15px 16px;
+  background: #fff;
 }
 .pp-fl {
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #98a0ad;
+  letter-spacing: 0.05em;
+  color: #9aa0ab;
 }
 .pp-fv {
   font-size: 19px;
-  font-weight: 800;
-  color: #1f2430;
-  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #1a1d23;
 }
 .pp-fv.pos {
-  color: #18a058;
+  color: #15935b;
 }
 .pp-fv.neg {
-  color: #f0a020;
+  color: #d83a45;
 }
 .pp-cond-list {
   display: flex;
@@ -234,36 +248,35 @@ function marginClass(v: number | null) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 14px;
-  border: 1px solid #eef0f4;
-  border-radius: 8px;
+  padding: 11px 14px;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
 }
 .pp-cond-selected {
-  border-color: #86efac;
-  background: #f0fdf4;
-  box-shadow: inset 3px 0 0 #22c55e;
+  border-color: #cdebd9;
+  background: #eef6f1;
+  box-shadow: inset 3px 0 0 #15935b;
 }
 .pp-cond-sup {
   display: flex;
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #2b2b33;
+  color: #1a1d23;
 }
 .pp-cond-vals {
   display: flex;
   gap: 18px;
   font-size: 13px;
   font-weight: 600;
-  color: #333;
-  font-variant-numeric: tabular-nums;
+  color: #374151;
 }
 .pp-cond-vals .pp-l {
-  font-weight: normal;
-  margin-right: 2px;
+  font-weight: 600;
+  margin-right: 3px;
 }
 .pp-empty {
-  color: #bbb;
+  color: #9aa0ab;
   font-size: 13px;
   font-style: italic;
 }

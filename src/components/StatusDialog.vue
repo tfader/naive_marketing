@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { NModal, NCard, NButton, NTag, NText, useMessage } from 'naive-ui'
+import { computed, ref, watch } from 'vue'
+import { NModal, NCard, NButton, NTag, NText, NSwitch, useMessage } from 'naive-ui'
 import api from '../api/client'
 import { statusTarget, showStatusDialog, bumpStatus } from '../composables/statuses'
+import { useAuthStore } from '../stores/auth'
 
 interface HistoryRow {
   id: number
   status: { id: number; name: string; color: string } | null
   user: { id: number; name: string } | null
+  seen: boolean
   created_at: string
 }
 interface SettableStatus {
@@ -16,10 +18,24 @@ interface SettableStatus {
   color: string
 }
 
+const CHARS_PER_SEC = 15
+const MIN_READ_MS = 600
+
 const message = useMessage()
+const auth = useAuthStore()
+const currentUserId = computed(() => auth.user?.id ?? null)
+
 const history = ref<HistoryRow[]>([])
 const options = ref<SettableStatus[]>([])
 const loading = ref(false)
+const onlyNew = ref(true)
+let openedAt = 0
+
+const displayed = computed(() => (onlyNew.value ? history.value.filter((r) => !r.seen) : history.value))
+
+function readingMs(text: string): number {
+  return Math.max(MIN_READ_MS, (text.length / CHARS_PER_SEC) * 1000)
+}
 
 async function load() {
   const t = statusTarget.value
@@ -37,6 +53,7 @@ async function load() {
     options.value = []
   } finally {
     loading.value = false
+    openedAt = Date.now()
   }
 }
 
@@ -45,7 +62,7 @@ async function setStatus(statusId: number) {
   if (!t) return
   try {
     await api.post('/status_assignments', { ref_model: t.refModel, ref_id: t.refId, ref_attribute: t.attribute, status_id: statusId })
-    await load()
+    showStatusDialog.value = false // nothing more to do here — close
     bumpStatus()
   } catch (err: any) {
     const errors = err.response?.data?.errors
@@ -53,11 +70,39 @@ async function setStatus(statusId: number) {
   }
 }
 
+// On close: mark others' unseen status changes as seen if the dialog was open long enough.
+async function markSeenOnClose() {
+  const elapsed = Date.now() - openedAt
+  const markable = history.value.filter((r) => !r.seen && r.user?.id !== currentUserId.value)
+  let cumulative = 0
+  const ids: number[] = []
+  for (const r of markable) {
+    cumulative += readingMs(r.status?.name ?? '')
+    if (elapsed >= cumulative) ids.push(r.id)
+  }
+  if (ids.length) {
+    try {
+      await api.post('/status_assignments/mark_seen', { status_assignment_ids: ids })
+      bumpStatus()
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 function when(ts: string): string {
   return ts ? ts.slice(0, 16).replace('T', ' ') : ''
 }
 
-watch([showStatusDialog, statusTarget], () => {
+watch(showStatusDialog, async (val, old) => {
+  if (val && !old) {
+    onlyNew.value = true
+    await load()
+  } else if (!val && old) {
+    await markSeenOnClose()
+  }
+})
+watch(statusTarget, () => {
   if (showStatusDialog.value) load()
 })
 </script>
@@ -71,6 +116,13 @@ watch([showStatusDialog, statusTarget], () => {
       closable
       @close="showStatusDialog = false"
     >
+      <template #header-extra>
+        <div class="sd-toggle">
+          <span class="sd-toggle-lbl">Only new</span>
+          <NSwitch v-model:value="onlyNew" size="small" />
+        </div>
+      </template>
+
       <div class="sd-set">
         <NText depth="3" style="font-size:12px">Set status</NText>
         <div class="sd-options">
@@ -88,12 +140,13 @@ watch([showStatusDialog, statusTarget], () => {
       </div>
 
       <div class="sd-title">History</div>
-      <div v-if="!history.length && !loading" class="sd-empty">No status changes yet.</div>
-      <div v-for="row in history" :key="row.id" class="sd-row">
-        <NTag v-if="row.status" size="small" :color="{ color: '#fff', textColor: '#fff', borderColor: row.status.color }" :style="`background:${row.status.color}`">
+      <div v-if="!displayed.length && !loading" class="sd-empty">{{ onlyNew ? 'No new changes.' : 'No status changes yet.' }}</div>
+      <div v-for="row in displayed" :key="row.id" class="sd-row">
+        <NTag v-if="row.status" size="small" :style="`background:${row.status.color};color:#fff`" :bordered="false">
           {{ row.status.name }}
         </NTag>
         <NTag v-else size="small">(removed)</NTag>
+        <NTag v-if="!row.seen" size="small" type="success" :bordered="false">new</NTag>
         <span class="sd-by">{{ row.user?.name ?? 'Unknown' }}</span>
         <span class="sd-when">{{ when(row.created_at) }}</span>
       </div>
@@ -102,6 +155,15 @@ watch([showStatusDialog, statusTarget], () => {
 </template>
 
 <style scoped>
+.sd-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sd-toggle-lbl {
+  font-size: 12px;
+  color: #888;
+}
 .sd-set {
   display: flex;
   flex-direction: column;

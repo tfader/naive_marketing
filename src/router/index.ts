@@ -34,6 +34,11 @@ const routes = [
         component: () => import('../views/CampaignDetailView.vue'),
       },
       {
+        path: 'campaigns/:id/leaflet',
+        name: 'CampaignLeaflet',
+        component: () => import('../views/CampaignLeafletView.vue'),
+      },
+      {
         path: 'roles',
         name: 'Roles',
         component: () => import('../views/RolesView.vue'),

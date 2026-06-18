@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import {
-  NH2,
-  NDataTable,
   NButton,
   NSpace,
-  NTag,
   NModal,
   NCard,
   NForm,
@@ -18,7 +15,7 @@ import {
   NPopconfirm,
   useMessage,
 } from 'naive-ui'
-import type { DataTableColumns, SelectOption } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import api from '../api/client'
 
 const COLOR_SWATCHES = [
@@ -71,71 +68,7 @@ const templateOptions = computed<SelectOption[]>(() =>
 
 const modalTitle = computed(() => (editingType.value ? 'Edit Campaign Type' : 'New Campaign Type'))
 
-const columns: DataTableColumns<CampaignType> = [
-  { title: '#', key: 'sort_order', width: 60, sorter: 'default' },
-  {
-    title: 'Color',
-    key: 'color',
-    width: 70,
-    render: (row) => h('span', {
-      style: `display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: ${row.color || '#cbd5e1'}`,
-    }),
-  },
-  { title: 'Name', key: 'name', sorter: 'default' },
-  { title: 'Code', key: 'code', width: 130 },
-  {
-    title: 'Duration',
-    key: 'default_duration_days',
-    width: 100,
-    render: (row) => row.default_duration_days ? `${row.default_duration_days}d` : h('span', { style: 'color: #aaa' }, '—'),
-  },
-  {
-    title: 'Leaflet',
-    key: 'has_pages',
-    width: 90,
-    render: (row) => row.has_pages
-      ? h(NTag, { size: 'small', type: 'info' }, { default: () => 'Pages' })
-      : h('span', { style: 'color: #aaa' }, '—'),
-  },
-  {
-    title: 'Default Flow',
-    key: 'default_process_template',
-    width: 220,
-    render(row) {
-      return row.default_process_template
-        ? h(NTag, { size: 'small', type: 'info' }, { default: () => row.default_process_template!.name })
-        : h('span', { style: 'color: #aaa' }, '—')
-    },
-  },
-  {
-    title: 'Status',
-    key: 'active',
-    width: 100,
-    render(row) {
-      return h(NTag, { type: row.active ? 'success' : 'warning', size: 'small' }, { default: () => row.active ? 'Active' : 'Inactive' })
-    },
-  },
-  {
-    title: 'Actions',
-    key: 'actions',
-    width: 160,
-    render(row) {
-      return h(NSpace, { size: 8 }, {
-        default: () => [
-          h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
-          h(
-            NPopconfirm,
-            { onPositiveClick: () => deleteType(row.id) },
-            {
-              trigger: () => h(NButton, { size: 'small', type: 'error' }, { default: () => 'Delete' }),
-              default: () => `Delete "${row.name}"?`,
-            }
-          ),
-        ],
-      })
-    },
-  },
-]
+const sortedTypes = computed(() => [...types.value].sort((a, b) => a.sort_order - b.sort_order))
 
 function openNew() {
   editingType.value = null
@@ -214,20 +147,53 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
-    <NSpace justify="space-between" align="center" style="margin-bottom: 16px">
-      <NH2 style="margin: 0">Campaign Types</NH2>
-      <NButton type="primary" @click="openNew">Add Type</NButton>
-    </NSpace>
+  <div class="cockpit-ct">
+    <div class="ct-head">
+      <div>
+        <h1 class="ct-title">Campaign Types</h1>
+        <span class="ct-total mono">{{ types.length }} types</span>
+      </div>
+      <button class="ct-add" @click="openNew">+ Add type</button>
+    </div>
 
-    <NDataTable
-      :columns="columns"
-      :data="types"
-      :loading="loading"
-      :bordered="true"
-      :single-line="false"
-      :row-key="(row: CampaignType) => row.id"
-    />
+    <div v-if="loading" class="ct-empty">Loading…</div>
+    <div v-else-if="!types.length" class="ct-empty">No campaign types yet.</div>
+    <div v-else class="ct-grid">
+      <div
+        v-for="t in sortedTypes"
+        :key="t.id"
+        class="ct-card"
+        :class="{ inactive: !t.active }"
+        :style="{ borderLeftColor: t.color || '#cbd5e1' }"
+      >
+        <div class="ct-card-head">
+          <div class="ct-id">
+            <span class="ct-swatch" :style="{ background: t.color || '#cbd5e1' }"></span>
+            <div class="ct-id-text">
+              <span class="ct-name">{{ t.name }}</span>
+              <span class="ct-code mono">{{ t.code }}</span>
+            </div>
+          </div>
+          <span class="ct-status" :class="t.active ? 'is-on' : 'is-off'">{{ t.active ? 'Active' : 'Inactive' }}</span>
+        </div>
+
+        <p v-if="t.description" class="ct-desc">{{ t.description }}</p>
+
+        <div class="ct-meta">
+          <span class="ct-chip">Duration <b class="mono">{{ t.default_duration_days ? t.default_duration_days + 'd' : '—' }}</b></span>
+          <span v-if="t.has_pages" class="ct-chip is-leaflet">Leaflet · pages</span>
+          <span class="ct-chip">Flow <b>{{ t.default_process_template ? t.default_process_template.name : '—' }}</b></span>
+        </div>
+
+        <div class="ct-actions">
+          <button class="ct-btn" @click="openEdit(t)">Edit</button>
+          <NPopconfirm @positive-click="() => deleteType(t.id)">
+            <template #trigger><button class="ct-btn danger">Delete</button></template>
+            Delete "{{ t.name }}"?
+          </NPopconfirm>
+        </div>
+      </div>
+    </div>
 
     <NModal v-model:show="showModal">
       <NCard :title="modalTitle" style="width: 500px" closable @close="showModal = false">
@@ -273,3 +239,63 @@ onMounted(async () => {
     </NModal>
   </div>
 </template>
+
+<style scoped>
+.cockpit-ct {
+  margin: -24px;
+  padding: 24px;
+  background: #eceef2;
+  min-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #1a1d23;
+}
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+.ct-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.ct-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.ct-total { font-size: 12.5px; color: #9aa0ab; }
+.ct-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #5b50d6; border: none; border-radius: 9px;
+  padding: 10px 16px; color: #fff; font-weight: 600; font-size: 13.5px;
+  cursor: pointer; font-family: inherit;
+}
+.ct-add:hover { background: #4a40c2; }
+
+.ct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.ct-empty {
+  background: #fff; border: 1px dashed #d7dae1; border-radius: 12px;
+  padding: 40px; text-align: center; color: #9aa0ab;
+}
+.ct-card {
+  background: #fff; border: 1px solid #e7e9ee; border-left: 4px solid #cbd5e1; border-radius: 12px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ct-card:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05); }
+.ct-card.inactive { opacity: 0.62; }
+.ct-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ct-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ct-swatch { width: 14px; height: 14px; border-radius: 4px; flex: 0 0 auto; }
+.ct-id-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ct-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.ct-code { font-size: 11.5px; color: #9aa0ab; }
+.ct-status { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+.ct-status.is-on { color: #0f7a4a; background: #e3f4ec; }
+.ct-status.is-off { color: #9a6608; background: #f7eedb; }
+.ct-desc { margin: 0; font-size: 13px; color: #6b7280; line-height: 1.5; }
+.ct-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.ct-chip { font-size: 12px; color: #6b7280; background: #f0f1f4; padding: 3px 10px; border-radius: 7px; }
+.ct-chip b { color: #1a1d23; }
+.ct-chip.is-leaflet { color: #3f37a8; background: #f0eefc; font-weight: 600; }
+.ct-actions { display: flex; gap: 6px; }
+.ct-btn {
+  border: 1px solid #e7e9ee; background: #fff; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: #374151;
+  padding: 6px 12px; border-radius: 8px;
+}
+.ct-btn:hover { border-color: #cfd3da; }
+.ct-btn.danger { color: #b32630; border-color: #f1d6d8; }
+.ct-btn.danger:hover { background: #fdf1f2; }
+</style>

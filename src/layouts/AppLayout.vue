@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import CommentsDialog from '../components/CommentsDialog.vue'
 import StatusDialog from '../components/StatusDialog.vue'
@@ -10,13 +10,11 @@ import {
   NLayoutSider,
   NLayoutContent,
   NLayoutHeader,
-  NMenu,
   NText,
   NAvatar,
   NDropdown,
   NButton,
 } from 'naive-ui'
-import type { MenuOption } from 'naive-ui'
 import {
   HomeOutline,
   CalendarOutline,
@@ -41,81 +39,25 @@ const route = useRoute()
 const auth = useAuthStore()
 const collapsed = ref(false)
 
-function renderIcon(icon: any) {
-  return () => h(NIcon, null, { default: () => h(icon) })
-}
-
 onMounted(() => {
   loadCommentable()
   loadStatusable()
 })
 
-const menuOptions: MenuOption[] = [
-  {
-    label: 'Dashboard',
-    key: 'Dashboard',
-    icon: renderIcon(HomeOutline),
-  },
-  {
-    label: 'Calendar',
-    key: 'Calendar',
-    icon: renderIcon(CalendarOutline),
-  },
-  {
-    label: 'Campaigns',
-    key: 'Campaigns',
-    icon: renderIcon(MegaphoneOutline),
-  },
-  {
-    label: 'Roles',
-    key: 'Roles',
-    icon: renderIcon(PeopleOutline),
-  },
-  {
-    label: 'Process',
-    key: 'Process',
-    icon: renderIcon(GitNetworkOutline),
-  },
-  {
-    label: 'Users',
-    key: 'Users',
-    icon: renderIcon(PersonOutline),
-  },
-  {
-    label: 'Campaign Types',
-    key: 'CampaignTypes',
-    icon: renderIcon(ListOutline),
-  },
-  {
-    label: 'Promotion Types',
-    key: 'PromotionTypes',
-    icon: renderIcon(PricetagsOutline),
-  },
-  {
-    label: 'Categories',
-    key: 'Categories',
-    icon: renderIcon(GridOutline),
-  },
-  {
-    label: 'Parameters',
-    key: 'Parameters',
-    icon: renderIcon(SettingsOutline),
-  },
-  {
-    label: 'Commentable',
-    key: 'Commentable',
-    icon: renderIcon(ChatbubblesOutline),
-  },
-  {
-    label: 'Statuses',
-    key: 'Statuses',
-    icon: renderIcon(FlagOutline),
-  },
-  {
-    label: 'Statusable',
-    key: 'Statusable',
-    icon: renderIcon(OptionsOutline),
-  },
+const navItems = [
+  { key: 'Dashboard', label: 'Dashboard', icon: HomeOutline },
+  { key: 'Calendar', label: 'Calendar', icon: CalendarOutline },
+  { key: 'Campaigns', label: 'Campaigns', icon: MegaphoneOutline },
+  { key: 'Roles', label: 'Roles', icon: PeopleOutline },
+  { key: 'Process', label: 'Process', icon: GitNetworkOutline },
+  { key: 'Users', label: 'Users', icon: PersonOutline },
+  { key: 'CampaignTypes', label: 'Campaign Types', icon: ListOutline },
+  { key: 'PromotionTypes', label: 'Promotion Types', icon: PricetagsOutline },
+  { key: 'Categories', label: 'Categories', icon: GridOutline },
+  { key: 'Parameters', label: 'Parameters', icon: SettingsOutline },
+  { key: 'Commentable', label: 'Commentable', icon: ChatbubblesOutline },
+  { key: 'Statuses', label: 'Statuses', icon: FlagOutline },
+  { key: 'Statusable', label: 'Statusable', icon: OptionsOutline },
 ]
 
 const activeKey = computed(() => route.name as string)
@@ -147,24 +89,38 @@ const userInitials = computed(() => {
       bordered
       collapse-mode="width"
       :collapsed-width="64"
-      :width="220"
+      :width="236"
       :collapsed="collapsed"
-      show-trigger
+      show-trigger="bar"
+      :native-scrollbar="false"
+      content-style="display:flex; flex-direction:column; height:100%;"
+      style="background:#fff;"
       @collapse="collapsed = true"
       @expand="collapsed = false"
     >
-      <div class="logo" :class="{ collapsed }">
-        <span v-if="!collapsed">Naive Marketing</span>
-        <span v-else>NM</span>
+      <div class="ck-logo" :class="{ collapsed }">
+        <span class="ck-logo-mark">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
+            <path d="M3.6 11.3 11.3 3.6a2 2 0 0 1 1.4-.6H19a2 2 0 0 1 2 2v6.3a2 2 0 0 1-.6 1.4l-7.7 7.7a2 2 0 0 1-2.8 0l-6.3-6.3a2 2 0 0 1 0-2.8Z" fill="#5b50d6"/>
+            <circle cx="16.2" cy="7.8" r="1.7" fill="#fff"/>
+          </svg>
+        </span>
+        <span v-if="!collapsed" class="ck-logo-text">Naive Marketing</span>
       </div>
-      <NMenu
-        :collapsed="collapsed"
-        :collapsed-width="64"
-        :collapsed-icon-size="22"
-        :options="menuOptions"
-        :value="activeKey"
-        @update:value="handleMenuUpdate"
-      />
+      <nav class="ck-nav" :class="{ collapsed }">
+        <div
+          v-for="opt in navItems"
+          :key="opt.key"
+          class="ck-nav-item"
+          :class="{ active: activeKey === opt.key }"
+          :title="opt.label"
+          tabindex="0"
+          @click="handleMenuUpdate(opt.key)"
+          @keydown.enter="handleMenuUpdate(opt.key)"
+        >
+          <NIcon class="ck-nav-ico" :component="opt.icon" /><span v-if="!collapsed" class="ck-nav-label">{{ opt.label }}</span>
+        </div>
+      </nav>
     </NLayoutSider>
     <NLayout>
       <NLayoutHeader bordered class="header">
@@ -181,7 +137,7 @@ const userInitials = computed(() => {
               {{ auth.user?.full_name }}
             </NText>
             <NDropdown :options="userMenuOptions" @select="handleUserMenu">
-              <NAvatar round size="small" style="cursor: pointer; background: #36ad6a">
+              <NAvatar round size="small" style="cursor: pointer; background: #5b50d6">
                 {{ userInitials }}
               </NAvatar>
             </NDropdown>
@@ -198,22 +154,85 @@ const userInitials = computed(() => {
 </template>
 
 <style scoped>
-.logo {
-  height: 48px;
+.ck-logo {
+  height: 60px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 22px;
+  border-bottom: 1px solid #f0f1f4;
+}
+.ck-logo-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #f0eefc;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
+}
+.ck-logo-text {
   font-weight: 700;
   font-size: 16px;
-  color: #333;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  letter-spacing: -0.01em;
+  color: #1a1d23;
   white-space: nowrap;
   overflow: hidden;
-  transition: all 0.3s;
+}
+.ck-nav {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ck-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  transition: background 0.12s, color 0.12s;
+}
+.ck-nav-item:hover {
+  background: #f5f6f8;
+}
+.ck-nav-item.active {
+  color: #3f37a8;
+  font-weight: 600;
+  background: #f3f2fd;
+}
+.ck-nav-item:focus-visible {
+  outline: 2px solid #5b50d6;
+  outline-offset: 2px;
+}
+.ck-nav-ico {
+  font-size: 18px;
+  color: #9aa0ab;
+  flex: 0 0 auto;
+  display: flex;
+}
+.ck-nav-item.active .ck-nav-ico {
+  color: #5b50d6;
 }
 
-.logo.collapsed {
-  font-size: 18px;
+/* collapsed sidebar */
+.ck-logo.collapsed {
+  padding: 0;
+  justify-content: center;
+}
+.ck-nav.collapsed {
+  padding: 14px 8px;
+}
+.ck-nav.collapsed .ck-nav-item {
+  justify-content: center;
+  padding: 9px 0;
 }
 
 .header {

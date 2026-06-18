@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import {
-  NH2,
-  NDataTable,
   NButton,
   NSpace,
-  NTag,
   NModal,
   NCard,
   NForm,
@@ -16,7 +13,6 @@ import {
   NPopconfirm,
   useMessage,
 } from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
 import api from '../api/client'
 import type { PromotionType } from '../types/campaign'
 import PromotionSkeleton from '../components/PromotionSkeleton.vue'
@@ -39,47 +35,7 @@ const form = ref({
 
 const modalTitle = computed(() => (editingType.value ? 'Edit Promotion Type' : 'New Promotion Type'))
 
-const columns: DataTableColumns<PromotionType> = [
-  { title: '#', key: 'sort_order', width: 60, sorter: 'default' },
-  { title: 'Name', key: 'name', sorter: 'default' },
-  { title: 'Code', key: 'code', width: 150 },
-  { title: 'Min. products', key: 'min_products', width: 100 },
-  { title: 'Max. products', key: 'max_products', width: 100, render: (row) => row.max_products ?? '∞' },
-  {
-    title: 'Preview (skeleton)',
-    key: 'layout',
-    width: 300,
-    render: (row) => h(PromotionSkeleton, { layout: row.layout }),
-  },
-  {
-    title: 'Status',
-    key: 'active',
-    width: 100,
-    render(row) {
-      return h(NTag, { type: row.active ? 'success' : 'warning', size: 'small' }, { default: () => (row.active ? 'Active' : 'Inactive') })
-    },
-  },
-  {
-    title: 'Actions',
-    key: 'actions',
-    width: 160,
-    render(row) {
-      return h(NSpace, { size: 8 }, {
-        default: () => [
-          h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
-          h(
-            NPopconfirm,
-            { onPositiveClick: () => deleteType(row.id) },
-            {
-              trigger: () => h(NButton, { size: 'small', type: 'error' }, { default: () => 'Delete' }),
-              default: () => `Delete "${row.name}"?`,
-            }
-          ),
-        ],
-      })
-    },
-  },
-]
+const sortedTypes = computed(() => [...types.value].sort((a, b) => a.sort_order - b.sort_order))
 
 function openNew() {
   editingType.value = null
@@ -145,20 +101,48 @@ onMounted(loadTypes)
 </script>
 
 <template>
-  <div>
-    <NSpace justify="space-between" align="center" style="margin-bottom: 16px">
-      <NH2 style="margin: 0">Promotion Types</NH2>
-      <NButton type="primary" @click="openNew">Add Type</NButton>
-    </NSpace>
+  <div class="cockpit-pt">
+    <div class="pt-head">
+      <div>
+        <h1 class="pt-title">Promotion Types</h1>
+        <span class="pt-total mono">{{ types.length }} types</span>
+      </div>
+      <button class="pt-add" @click="openNew">+ Add type</button>
+    </div>
 
-    <NDataTable
-      :columns="columns"
-      :data="types"
-      :loading="loading"
-      :bordered="true"
-      :single-line="false"
-      :row-key="(row: PromotionType) => row.id"
-    />
+    <div v-if="loading" class="pt-empty">Loading…</div>
+    <div v-else-if="!types.length" class="pt-empty">No promotion types yet.</div>
+    <div v-else class="pt-grid">
+      <div v-for="t in sortedTypes" :key="t.id" class="pt-card" :class="{ inactive: !t.active }">
+        <div class="pt-card-head">
+          <div class="pt-id">
+            <span class="pt-name">{{ t.name }}</span>
+            <span class="pt-code mono">{{ t.code }}</span>
+          </div>
+          <span class="pt-status" :class="t.active ? 'is-on' : 'is-off'">{{ t.active ? 'Active' : 'Inactive' }}</span>
+        </div>
+
+        <p v-if="t.description" class="pt-desc">{{ t.description }}</p>
+
+        <div class="pt-preview">
+          <PromotionSkeleton :layout="t.layout" />
+        </div>
+
+        <div class="pt-foot">
+          <div class="pt-meta">
+            <span class="pt-chip">min <b class="mono">{{ t.min_products }}</b></span>
+            <span class="pt-chip">max <b class="mono">{{ t.max_products ?? '∞' }}</b></span>
+          </div>
+          <div class="pt-actions">
+            <button class="pt-btn" @click="openEdit(t)">Edit</button>
+            <NPopconfirm @positive-click="() => deleteType(t.id)">
+              <template #trigger><button class="pt-btn danger">Delete</button></template>
+              Delete "{{ t.name }}"?
+            </NPopconfirm>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <NModal v-model:show="showModal">
       <NCard :title="modalTitle" style="width: 500px" closable @close="showModal = false">
@@ -193,3 +177,66 @@ onMounted(loadTypes)
     </NModal>
   </div>
 </template>
+
+<style scoped>
+.cockpit-pt {
+  margin: -24px;
+  padding: 24px;
+  background: #eceef2;
+  min-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #1a1d23;
+}
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+.pt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.pt-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.pt-total { font-size: 12.5px; color: #9aa0ab; }
+.pt-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #5b50d6; border: none; border-radius: 9px;
+  padding: 10px 16px; color: #fff; font-weight: 600; font-size: 13.5px;
+  cursor: pointer; font-family: inherit;
+}
+.pt-add:hover { background: #4a40c2; }
+
+.pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+.pt-empty {
+  background: #fff; border: 1px dashed #d7dae1; border-radius: 12px;
+  padding: 40px; text-align: center; color: #9aa0ab;
+}
+.pt-card {
+  background: #fff; border: 1px solid #e7e9ee; border-radius: 14px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pt-card:hover { border-color: #cfd3da; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04); }
+.pt-card.inactive { opacity: 0.62; }
+.pt-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pt-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pt-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.pt-code { font-size: 11.5px; color: #9aa0ab; }
+.pt-status { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+.pt-status.is-on { color: #0f7a4a; background: #e3f4ec; }
+.pt-status.is-off { color: #9a6608; background: #f7eedb; }
+.pt-desc { margin: 0; font-size: 13px; color: #6b7280; line-height: 1.5; }
+.pt-preview {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 92px; padding: 14px;
+  background: #f6f7f9; border: 1px solid #eef0f3; border-radius: 10px;
+}
+.pt-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pt-meta { display: flex; gap: 8px; }
+.pt-chip { font-size: 12px; color: #6b7280; background: #f0f1f4; padding: 3px 10px; border-radius: 7px; }
+.pt-chip b { color: #1a1d23; }
+.pt-actions { display: flex; gap: 6px; }
+.pt-btn {
+  border: 1px solid #e7e9ee; background: #fff; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: #374151;
+  padding: 6px 12px; border-radius: 8px;
+}
+.pt-btn:hover { border-color: #cfd3da; }
+.pt-btn.danger { color: #b32630; border-color: #f1d6d8; }
+.pt-btn.danger:hover { background: #fdf1f2; }
+</style>
