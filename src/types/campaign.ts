@@ -97,6 +97,8 @@ export interface StockProjection {
   daily_sales: number
   days: { day: number; end_stock: number }[]
   end_stock: number
+  end_stock_value_cost: number | null
+  end_stock_value_sale: number | null
   stockout_day: number | null
   days_of_cover: number | null
 }
@@ -110,7 +112,9 @@ export interface PromotionProduct {
   current_sale_price: string | number | null
   avg_daily_sales: string | number | null
   lower_sale_price_last_30_days: string | number | null
+  lowest_competitor_price: string | number | null
   promotion_factor: number | null
+  priced: boolean
   start_promo_stock: number | null
   stock_projection: StockProjection | null
   discount_percent: string | number | null
@@ -129,6 +133,8 @@ export interface ItemMetrics {
   sales_value: string | number | null
   margin: string | number | null
   margin_pct: string | number | null
+  priced_count?: number
+  products_count?: number
   fully_priced: boolean
 }
 

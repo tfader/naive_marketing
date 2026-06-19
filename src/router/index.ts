@@ -69,6 +69,11 @@ const routes = [
         component: () => import('../views/CategoriesView.vue'),
       },
       {
+        path: 'category-promotion-factors',
+        name: 'CategoryPromotionFactors',
+        component: () => import('../views/CategoryPromotionTypesView.vue'),
+      },
+      {
         path: 'parameters',
         name: 'Parameters',
         component: () => import('../views/ParametersView.vue'),

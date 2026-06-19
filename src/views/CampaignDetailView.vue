@@ -27,12 +27,13 @@ import type { SelectOption } from 'naive-ui'
 import api from '../api/client'
 import PromotionSkeleton from '../components/PromotionSkeleton.vue'
 import CampaignMiniCalendar from '../components/CampaignMiniCalendar.vue'
-import { BagHandleOutline, CreateOutline, TrashOutline, CloseOutline, GitNetworkOutline, EyeOutline, NewspaperOutline } from '@vicons/ionicons5'
+import { BagHandleOutline, CreateOutline, TrashOutline, CloseOutline, GitNetworkOutline, EyeOutline, NewspaperOutline, PricetagOutline } from '@vicons/ionicons5'
 import { setBreadcrumbs, clearBreadcrumbs } from '../composables/breadcrumbs'
 import { loadParameters, formatNumber, formatNumberInput, parseNumberInput } from '../composables/parameters'
 import MoneyValue from '../components/MoneyValue.vue'
 import ProductPreview from '../components/ProductPreview.vue'
 import FieldMeta from '../components/FieldMeta.vue'
+import SetPriceDialog from '../components/SetPriceDialog.vue'
 import { loadSummary } from '../composables/commentSummary'
 import { commentsVersion } from '../composables/comments'
 import { loadStatusSummary } from '../composables/statusSummary'
@@ -182,6 +183,7 @@ interface CatalogProduct {
 
 const showProductsModal = ref(false)
 const productItem = ref<CampaignItem | null>(null)
+const productCc = ref<CampaignCategory | null>(null)
 const categoryProducts = ref<CatalogProduct[]>([])
 const addProductId = ref<number | null>(null)
 const addPromotionFactor = ref<number>(100)
@@ -197,9 +199,22 @@ const addProductOptions = computed<SelectOption[]>(() => {
     .map((p) => ({ label: `${p.code} — ${p.name}`, value: p.id }))
 })
 const selectedProduct = computed(() => categoryProducts.value.find((p) => p.id === addProductId.value) ?? null)
-// Prefill the editable start stock from the picked product (start_promo_stock, else current level).
-watch(selectedProduct, (p) => {
+// On product pick: prefill start stock and fetch the category × promotion-type factor.
+watch(selectedProduct, async (p) => {
   addStartStock.value = p ? (p.start_promo_stock ?? p.current_stock_level) : null
+  if (!p || !productItem.value || !productCc.value) return
+  try {
+    const { data } = await api.get('/category_promotion_types/lookup', {
+      params: {
+        product_id: p.id,
+        promotion_type_id: productItem.value.promotion_type_id,
+        campaign_category_id: productCc.value.id,
+      },
+    })
+    addPromotionFactor.value = data.promotion_factor
+  } catch {
+    // keep current factor on lookup failure
+  }
 })
 const productLimitsHint = computed(() => {
   const it = productItem.value
@@ -391,6 +406,7 @@ function itemProductsUrl(item: CampaignItem): string {
 
 async function openAddProduct(item: CampaignItem, cc: CampaignCategory) {
   productItem.value = item
+  productCc.value = cc
   addProductId.value = null
   addPromotionFactor.value = 100
   addDiscountPercent.value = null
@@ -488,6 +504,35 @@ function productMargin(row: PromotionProduct): number | null {
   const c = toNum(row.product_cost)
   if (v == null || c == null) return null
   return v - c
+}
+
+// --- Set price (dedicated decision dialog: price + factor + live margin, then confirm) ---
+const showSetPriceModal = ref(false)
+const setPriceItemId = ref<number | null>(null)
+const setPriceLinkId = ref<number | null>(null)
+
+const setPriceCip = computed<PromotionProduct | null>(() => {
+  if (setPriceItemId.value == null) return null
+  for (const cc of campaign.value?.categories ?? []) {
+    const it = cc.items.find((i) => i.id === setPriceItemId.value)
+    if (it) return it.products.find((p) => p.link_id === setPriceLinkId.value) ?? null
+  }
+  return null
+})
+
+const setPriceBaseUrl = computed<string | null>(() => {
+  if (setPriceItemId.value == null || setPriceLinkId.value == null) return null
+  for (const cc of campaign.value?.categories ?? []) {
+    const it = cc.items.find((i) => i.id === setPriceItemId.value)
+    if (it) return `/campaigns/${campaignId}/campaign_categories/${it.campaign_category_id}/items/${it.id}/products/${setPriceLinkId.value}`
+  }
+  return null
+})
+
+function openSetPrice(item: CampaignItem, cip: PromotionProduct) {
+  setPriceItemId.value = item.id
+  setPriceLinkId.value = cip.link_id
+  showSetPriceModal.value = true
 }
 
 // --- Edit product in promotion (promotion_factor + supplier purchase conditions) ---
@@ -700,7 +745,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
             <div class="ck-count"><span class="ck-count-l">Categories</span><span class="ck-count-v mono">{{ campaign.categories_count }}</span></div>
             <div v-if="hasPages" class="ck-count"><span class="ck-count-l">Pages</span><span class="ck-count-v mono"><FieldMeta ref-model="Campaign" :ref-id="campaign.id" attribute="pages_count" label="Pages" />{{ campaign.pages_count ?? '—' }}</span></div>
             <span class="ck-spacer"></span>
-            <NTag v-if="!campaign.metrics.fully_priced" size="small" type="warning" :bordered="false">pricing incomplete</NTag>
+            <NTag v-if="!campaign.metrics.fully_priced" size="small" type="warning" :bordered="false">{{ campaign.metrics.priced_count ?? 0 }}/{{ campaign.metrics.products_count ?? 0 }} priced</NTag>
             <span class="ck-totals-lbl">Campaign totals</span>
           </div>
           <div class="ck-kpi-row">
@@ -796,7 +841,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                 <span class="ck-sum-l">Margin %</span>
                 <span class="ck-sum-pct mono" :class="`txt-${marginBand(currentCategory.metrics.margin_pct)}`">{{ currentCategory.metrics.margin_pct == null ? '—' : currentCategory.metrics.margin_pct + '%' }}</span>
               </div>
-              <NTag v-if="currentCategory.items.length && !currentCategory.metrics.fully_priced" size="small" type="warning" :bordered="false">pricing incomplete</NTag>
+              <NTag v-if="currentCategory.items.length && !currentCategory.metrics.fully_priced" size="small" type="warning" :bordered="false">{{ currentCategory.metrics.priced_count ?? 0 }}/{{ currentCategory.metrics.products_count ?? 0 }} priced</NTag>
             </div>
 
             <div class="ck-promo-toolbar">
@@ -823,7 +868,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                       <span class="ck-pm"><span class="ck-pm-l">Vol</span><span class="ck-pm-v mono">{{ fmt(item.metrics.volume) }}</span></span>
                       <span class="ck-pm"><span class="ck-pm-l">Margin</span><span class="ck-pm-v mono" :class="marginClass(item.metrics.margin)"><MoneyValue :value="item.metrics.margin" /></span></span>
                       <span class="ck-pm"><span class="ck-pm-l">Margin %</span><span class="ck-pm-v mono" :class="`txt-${marginBand(item.metrics.margin_pct)}`">{{ item.metrics.margin_pct == null ? '—' : item.metrics.margin_pct + '%' }}</span></span>
-                      <NTag v-if="item.products.length && !item.metrics.fully_priced" size="tiny" type="warning" :bordered="false">pricing incomplete</NTag>
+                      <NTag v-if="item.products.length && !item.metrics.fully_priced" size="tiny" type="warning" :bordered="false">{{ item.metrics.priced_count ?? 0 }}/{{ item.metrics.products_count ?? 0 }} priced</NTag>
                     </div>
                     <div class="ck-skeleton">
                       <PromotionSkeleton :layout="typeLayout(item.promotion_type_id)" />
@@ -863,7 +908,7 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                 </div>
 
                 <div v-if="item.products.length" class="ck-prod-list">
-                  <div v-for="row in item.products" :key="row.link_id" class="ck-prod">
+                  <div v-for="row in item.products" :key="row.link_id" class="ck-prod" :class="{ 'ck-prod-unpriced': !row.priced }">
                     <div class="ck-prod-l1">
                       <div class="ck-prod-id tcell-click" title="Preview product" @click="openPreview(item, row)">
                         <span class="ck-prod-name">{{ row.name }}</span>
@@ -875,20 +920,29 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
                           <span class="ck-arrow">→</span>
                           <span class="chip-comment"><FieldMeta ref-model="CampaignItemProduct" :ref-id="row.link_id" attribute="new_price" label="New price" /><span class="ck-new"><MoneyValue :value="row.new_price" /></span></span>
                           <span class="chip-comment"><FieldMeta ref-model="CampaignItemProduct" :ref-id="row.link_id" attribute="discount_percent" label="Discount %" /><span v-if="row.discount_percent != null" class="ck-disc">-{{ row.discount_percent }}%</span></span>
+                          <NTag v-if="row.priced" size="tiny" type="success" :bordered="false">priced</NTag>
+                          <NTag v-else size="tiny" type="warning" :bordered="false">not priced</NTag>
                         </div>
-                        <NSpace size="small">
+                        <NSpace size="small" align="center">
+                          <NButton size="tiny" :type="row.priced ? 'default' : 'primary'" :secondary="row.priced" title="Set price" @click="openSetPrice(item, row)">
+                            <template #icon><NIcon><PricetagOutline /></NIcon></template>
+                            {{ row.priced ? 'Price' : 'Set price' }}
+                          </NButton>
                           <NButton size="tiny" quaternary circle title="Preview product" @click="openPreview(item, row)"><template #icon><NIcon><EyeOutline /></NIcon></template></NButton>
-                          <NButton size="tiny" quaternary circle :title="`Edit (factor, ${row.conditions.length} conditions)`" @click="openEditProduct(item, row)"><template #icon><NIcon><CreateOutline /></NIcon></template></NButton>
+                          <NButton size="tiny" quaternary circle :title="`Edit cost (factor, ${row.conditions.length} conditions)`" @click="openEditProduct(item, row)"><template #icon><NIcon><CreateOutline /></NIcon></template></NButton>
                           <NButton size="tiny" quaternary circle type="error" title="Remove product" @click="removeProductFromItem(item, row.link_id)"><template #icon><NIcon><CloseOutline /></NIcon></template></NButton>
                         </NSpace>
                       </div>
                     </div>
-                    <div class="ck-prod-l2">
+                    <div v-if="row.priced" class="ck-prod-l2">
                       <div class="ck-stat"><span class="ck-stat-l">Est. volume</span><span class="ck-stat-v mono">{{ fmt(row.estimated_volume) }}</span></div>
                       <div class="ck-stat"><span class="ck-stat-l">Cost</span><span class="ck-stat-v mono"><MoneyValue :value="row.product_cost" /></span></div>
                       <div class="ck-stat"><span class="ck-stat-l">Sales value</span><span class="ck-stat-v mono"><MoneyValue :value="row.product_sales_value" /></span></div>
                       <span class="ck-spacer"></span>
                       <div class="ck-stat ck-stat-end"><span class="ck-stat-l">Margin</span><span class="ck-stat-v mono" :class="marginClass(productMargin(row))"><MoneyValue :value="productMargin(row)" /></span></div>
+                    </div>
+                    <div v-else class="ck-prod-l2 ck-prod-l2-empty">
+                      No price confirmed — values excluded from totals until confirmed.
                     </div>
                   </div>
                 </div>
@@ -990,13 +1044,6 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
           <NText depth="3" style="font-size:12px">expected sales uplift during the promotion</NText>
         </div>
         <div class="ap-factor">
-          <span class="stat-lbl">Discount (%)</span>
-          <NInputNumber :value="toNum(editingCip.discount_percent)" :min="0" :max="100" :format="formatNumberInput" :parse="parseNumberInput" style="width: 140px" placeholder="—" @update:value="(v) => patchEditCip({ discount_percent: v, new_price: null })" />
-          <span class="stat-lbl">New price</span>
-          <NInputNumber :value="toNum(editingCip.new_price)" :min="0" :precision="2" :format="formatNumberInput" :parse="parseNumberInput" style="width: 140px" placeholder="—" @update:value="(v) => patchEditCip({ new_price: v, discount_percent: null })" />
-        </div>
-
-        <div class="ap-factor">
           <span class="stat-lbl">Start stock</span>
           <NInputNumber :value="editingCip.start_promo_stock" :min="0" :format="formatNumberInput" :parse="parseNumberInput" style="width: 160px" placeholder="—" @update:value="(v) => patchEditCip({ start_promo_stock: v })" />
           <NText depth="3" style="font-size:12px">stock available at the start of the promotion (copied from product, editable)</NText>
@@ -1064,6 +1111,14 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
         </NForm>
       </NCard>
     </NModal>
+
+    <SetPriceDialog
+      v-model:show="showSetPriceModal"
+      :cip="setPriceCip"
+      :base-url="setPriceBaseUrl"
+      :target-margin="targetMargin"
+      @saved="loadCampaign"
+    />
 
     <!-- Add category modal -->
     <NModal v-model:show="showCatModal">
@@ -2028,6 +2083,9 @@ watch(statusVersion, () => loadStatusSummary(commentTargets()))
 .ck-new { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 16px; font-weight: 700; color: #1a1d23; }
 .ck-disc { font-size: 11px; font-weight: 600; color: #3f37a8; background: #f0eefc; padding: 2px 7px; border-radius: 5px; }
 .ck-prod-l2 { display: flex; align-items: center; gap: 34px; margin-top: 11px; padding-top: 11px; border-top: 1px dashed #eef0f3; flex-wrap: wrap; row-gap: 8px; }
+.ck-prod-l2-empty { font-size: 12px; color: #b0b6c2; font-style: italic; }
+.ck-prod-unpriced { background: #fcfcfd; }
+.ck-prod-unpriced .ck-prod-name { color: #6b7280; }
 .ck-stat { display: flex; flex-direction: column; gap: 2px; }
 .ck-stat-end { align-items: flex-end; }
 .ck-stat-l { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: #9aa0ab; font-weight: 600; }

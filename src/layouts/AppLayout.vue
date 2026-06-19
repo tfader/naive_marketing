@@ -29,6 +29,7 @@ import {
   ChatbubblesOutline,
   FlagOutline,
   OptionsOutline,
+  TrendingUpOutline,
 } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
 import { useAuthStore } from '../stores/auth'
@@ -54,6 +55,7 @@ const navItems = [
   { key: 'CampaignTypes', label: 'Campaign Types', icon: ListOutline },
   { key: 'PromotionTypes', label: 'Promotion Types', icon: PricetagsOutline },
   { key: 'Categories', label: 'Categories', icon: GridOutline },
+  { key: 'CategoryPromotionFactors', label: 'Category Factors', icon: TrendingUpOutline },
   { key: 'Parameters', label: 'Parameters', icon: SettingsOutline },
   { key: 'Commentable', label: 'Commentable', icon: ChatbubblesOutline },
   { key: 'Statuses', label: 'Statuses', icon: FlagOutline },
