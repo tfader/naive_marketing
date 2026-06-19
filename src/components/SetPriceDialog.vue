@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NModal, NCard, NText, NRadioGroup, NRadioButton, NInputNumber, NButton, NSpace, NTag } from 'naive-ui'
+import { NModal, NCard, NText, NRadioGroup, NRadioButton, NInputNumber, NInput, NButton, NSpace, NTag, NIcon } from 'naive-ui'
+import { CreateOutline, TrashOutline, AddOutline } from '@vicons/ionicons5'
 import api from '../api/client'
 import MoneyValue from './MoneyValue.vue'
 import CompetitorPricesDialog from './CompetitorPricesDialog.vue'
 import { formatNumber, formatNumberInput, parseNumberInput } from '../composables/parameters'
-import type { PromotionProduct } from '../types/campaign'
+import type { PromotionProduct, PriceVariant } from '../types/campaign'
 
 const props = defineProps<{
   show: boolean
@@ -32,6 +33,9 @@ interface Preview {
   stockout_day: number | null
 }
 
+// --- Editor state (the variant being created/edited) ---
+const editingVariantId = ref<number | null>(null)
+const label = ref<string>('')
 const mode = ref<'percent' | 'amount'>('amount')
 const discountPercent = ref<number | null>(null)
 const newPrice = ref<number | null>(null)
@@ -39,7 +43,7 @@ const promotionFactor = ref<number>(100)
 const preview = ref<Preview | null>(null)
 const previewing = ref(false)
 const saving = ref(false)
-const dirty = ref(false) // inputs changed since the last Apply — preview is stale
+const dirty = ref(false)
 const showCompetitors = ref(false)
 
 function num(v: string | number | null | undefined): number | null {
@@ -48,34 +52,50 @@ function num(v: string | number | null | undefined): number | null {
 const r2 = (n: number) => Math.round(n * 100) / 100
 const r1 = (n: number) => Math.round(n * 10) / 10
 
-// Seed the form from the product whenever the dialog opens.
+const variants = computed<PriceVariant[]>(() => props.cip?.variants ?? [])
+
+// --- Open: load the active variant for editing, else the first, else a fresh draft. ---
 watch(
   () => props.show,
   (open) => {
     if (!open || !props.cip) return
-    const c = props.cip
-    promotionFactor.value = Number(c.promotion_factor ?? 100)
-    if (c.discount_percent != null) {
-      mode.value = 'percent'
-      discountPercent.value = num(c.discount_percent)
-      newPrice.value = null
-    } else if (c.new_price != null) {
-      mode.value = 'amount'
-      newPrice.value = num(c.new_price)
-      discountPercent.value = null
-    } else {
-      mode.value = 'amount'
-      discountPercent.value = null
-      newPrice.value = null
-    }
-    preview.value = null
-    refreshPreview().then(() => (dirty.value = false))
+    const active = variants.value.find((v) => v.selected) ?? variants.value[0]
+    if (active) loadVariant(active)
+    else newDraft()
   }
 )
 
-// Proposed pricing payload for the active mode.
+function loadVariant(v: PriceVariant) {
+  editingVariantId.value = v.id
+  label.value = v.label ?? ''
+  promotionFactor.value = Number(v.promotion_factor ?? 100)
+  if (v.discount_percent != null) {
+    mode.value = 'percent'
+    discountPercent.value = num(v.discount_percent)
+    newPrice.value = null
+  } else {
+    mode.value = 'amount'
+    newPrice.value = num(v.new_price)
+    discountPercent.value = null
+  }
+  preview.value = null
+  refreshPreview().then(() => (dirty.value = false))
+}
+
+function newDraft() {
+  editingVariantId.value = null
+  label.value = ''
+  mode.value = 'amount'
+  discountPercent.value = null
+  newPrice.value = null
+  promotionFactor.value = Number(props.cip?.promotion_factor ?? 100)
+  preview.value = null
+  dirty.value = false
+}
+
 function payload(): Record<string, unknown> {
   return {
+    label: label.value?.trim() || `Variant ${variants.value.length + 1}`,
     promotion_factor: promotionFactor.value,
     discount_percent: mode.value === 'percent' ? discountPercent.value : null,
     new_price: mode.value === 'amount' ? newPrice.value : null,
@@ -86,32 +106,17 @@ const hasPrice = computed(() =>
   mode.value === 'percent' ? discountPercent.value != null : newPrice.value != null
 )
 
-// --- Reference figures -----------------------------------------------------
+// --- Reference / derived figures (preview drives the "new price" scenario) ---
 const currentSale = computed(() => num(props.cip?.current_sale_price))
 const costPrice = computed(() => num(props.cip?.current_cost_price))
 const unitCost = computed(() => preview.value?.unit_cost ?? costPrice.value)
 const volume = computed(() => preview.value?.estimated_volume ?? num(props.cip?.estimated_volume))
 
-// Are we (at the applied new price) more expensive than the cheapest competitor?
-const aboveCompetitor = computed<boolean>(() => {
-  const comp = num(props.cip?.lowest_competitor_price)
-  return comp != null && preview.value?.new_price != null && preview.value.new_price > comp
-})
-const hasCompetitor = computed(() => num(props.cip?.lowest_competitor_price) != null)
-
-// Omnibus check: the new price must not exceed the lowest price of the last 30 days.
-const omnibusViolation = computed<boolean>(() => {
-  const low = num(props.cip?.lower_sale_price_last_30_days)
-  return low != null && preview.value?.new_price != null && preview.value.new_price > low
-})
-
-// Signed % difference of the (applied) new price vs the current sale price, e.g. -15.0.
 const priceDeltaPct = computed<number | null>(() => {
   if (currentSale.value == null || currentSale.value === 0 || preview.value?.new_price == null) return null
   return r1((preview.value.new_price / currentSale.value - 1) * 100)
 })
 
-// --- Current-price baseline margins (cost is price-independent → reuse preview cost) ---
 const curUnitMargin = computed(() =>
   currentSale.value != null && unitCost.value != null ? r2(currentSale.value - unitCost.value) : null
 )
@@ -129,7 +134,6 @@ const curTotalMarginPct = computed(() =>
   curTotalMargin.value != null && curTotalSales.value ? r1((curTotalMargin.value / curTotalSales.value) * 100) : null
 )
 
-// --- Stock value --------------------------------------------------------
 const stockQty = computed(() => num(props.cip?.start_promo_stock))
 const curStockCost = computed(() =>
   stockQty.value != null && costPrice.value != null ? r2(stockQty.value * costPrice.value) : null
@@ -138,6 +142,20 @@ const curStockSale = computed(() =>
   stockQty.value != null && currentSale.value != null ? r2(stockQty.value * currentSale.value) : null
 )
 
+const aboveCompetitor = computed<boolean>(() => {
+  const comp = num(props.cip?.lowest_competitor_price)
+  return comp != null && preview.value?.new_price != null && preview.value.new_price > comp
+})
+const hasCompetitor = computed(() => num(props.cip?.lowest_competitor_price) != null)
+
+const omnibusViolation = computed<boolean>(() => {
+  const low = num(props.cip?.lower_sale_price_last_30_days)
+  return low != null && preview.value?.new_price != null && preview.value.new_price > low
+})
+
+const unitNewBand = computed<string>(() => fixedBand(preview.value?.unit_margin_pct))
+
+// --- Preview (recalculated on Apply only) ---
 async function refreshPreview() {
   if (!props.baseUrl) return
   previewing.value = true
@@ -150,45 +168,49 @@ async function refreshPreview() {
     previewing.value = false
   }
 }
-
-// Recalculate only on explicit Apply; mark the preview stale meanwhile.
 async function apply() {
   await refreshPreview()
   dirty.value = false
 }
-
 watch([mode, discountPercent, newPrice, promotionFactor], () => (dirty.value = true))
 
-async function confirm() {
+// --- Variant actions ---
+async function saveVariant() {
   if (!props.baseUrl || !hasPrice.value) return
   saving.value = true
   try {
-    await api.patch(props.baseUrl, { ...payload(), priced: true })
+    if (editingVariantId.value != null) {
+      await api.patch(`${props.baseUrl}/variants/${editingVariantId.value}`, payload())
+    } else {
+      await api.post(`${props.baseUrl}/variants`, payload())
+    }
     emit('saved')
-    emit('update:show', false)
+    if (editingVariantId.value == null) newDraft() // ready for the next proposal
   } finally {
     saving.value = false
   }
 }
 
-// Margin colour band (mirrors the cockpit: good ≥ target, mid ≥ 60% of target, else low).
-function band(pct: number | null | undefined): string {
-  if (pct == null) return 'none'
-  if (pct >= props.targetMargin) return 'good'
-  if (pct >= props.targetMargin * 0.6) return 'mid'
-  return 'low'
+async function selectVariant(v: PriceVariant) {
+  if (!props.baseUrl) return
+  await api.post(`${props.baseUrl}/variants/${v.id}/select`)
+  emit('saved')
 }
 
-// The headline figure — unit margin at the new price. Fixed thresholds:
-// ≤ 0% red, 0–2% amber, > 2% green.
-const unitNewBand = computed<string>(() => {
-  const pct = preview.value?.unit_margin_pct
+async function deleteVariant(v: PriceVariant) {
+  if (!props.baseUrl) return
+  await api.delete(`${props.baseUrl}/variants/${v.id}`)
+  if (editingVariantId.value === v.id) newDraft()
+  emit('saved')
+}
+
+// Fixed-threshold band for unit margin %: ≤ 0% red, 0–2% amber, > 2% green.
+function fixedBand(pct: number | null | undefined): string {
   if (pct == null) return 'none'
   if (pct <= 0) return 'low'
   if (pct <= 2) return 'mid'
   return 'good'
-})
-
+}
 function pctText(v: number | null | undefined): string {
   return v == null ? '—' : `${v}%`
 }
@@ -199,10 +221,45 @@ function pctText(v: number | null | undefined): string {
     <NCard v-if="cip" :title="cip.name" style="width: 1040px; max-width: 94vw" closable @close="emit('update:show', false)">
       <NText depth="3" style="display:block; margin-bottom: 14px">
         {{ cip.code }}<template v-if="cip.supplier"> · {{ cip.supplier.name }}</template>
-        <NTag v-if="cip.priced" size="small" type="success" :bordered="false" style="margin-left: 8px">priced</NTag>
       </NText>
 
-      <!-- 1. Price: current → new → difference -->
+      <!-- Price variants (proposals); exactly one is active and drives the calculation -->
+      <div class="sp-variants">
+        <div class="sp-var-head">
+          <span class="sp-panel-title">Price variants</span>
+          <NButton size="tiny" tertiary :type="editingVariantId == null ? 'primary' : 'default'" @click="newDraft">
+            <template #icon><NIcon><AddOutline /></NIcon></template>New variant
+          </NButton>
+        </div>
+        <div v-if="variants.length" class="sp-var-list">
+          <div
+            v-for="v in variants"
+            :key="v.id"
+            class="sp-var"
+            :class="{ active: v.selected, editing: v.id === editingVariantId }"
+          >
+            <span class="sp-var-active">
+              <NTag v-if="v.selected" size="tiny" type="success" :bordered="false">active</NTag>
+              <NButton v-else size="tiny" quaternary @click="selectVariant(v)">Set active</NButton>
+            </span>
+            <span class="sp-var-label">{{ v.label || 'Variant' }}</span>
+            <span class="sp-var-price mono"><MoneyValue :value="v.metrics.new_price" /></span>
+            <span class="sp-var-disc mono">
+              <template v-if="v.discount_percent != null">−{{ v.discount_percent }}%</template>
+            </span>
+            <span class="sp-var-margin mono" :class="`txt-${fixedBand(v.metrics.unit_margin_pct)}`">{{ pctText(v.metrics.unit_margin_pct) }}</span>
+            <span class="sp-var-actions">
+              <NButton size="tiny" quaternary circle title="Edit" @click="loadVariant(v)"><template #icon><NIcon><CreateOutline /></NIcon></template></NButton>
+              <NButton size="tiny" quaternary circle type="error" title="Delete" @click="deleteVariant(v)"><template #icon><NIcon><TrashOutline /></NIcon></template></NButton>
+            </span>
+          </div>
+        </div>
+        <div v-else class="sp-var-empty">No variants yet — create the first proposal below.</div>
+      </div>
+
+      <div class="sp-editor-label">{{ editingVariantId == null ? 'New variant' : 'Editing variant' }}</div>
+
+      <!-- 1. Price: current → new → margin% -->
       <div class="sp-heroes">
         <div class="sp-hero">
           <span class="sp-hero-l">Current sale price</span>
@@ -221,8 +278,12 @@ function pctText(v: number | null | undefined): string {
         </div>
       </div>
 
-      <!-- Controls -->
+      <!-- Editor controls -->
       <div class="sp-controls">
+        <div class="sp-ctl">
+          <span class="sp-lbl">Label</span>
+          <NInput v-model:value="label" size="small" placeholder="Variant name" style="width: 160px" />
+        </div>
         <div class="sp-ctl">
           <span class="sp-lbl">Price</span>
           <NRadioGroup v-model:value="mode" size="small">
@@ -234,14 +295,14 @@ function pctText(v: number | null | undefined): string {
             v-model:value="discountPercent"
             :min="0" :max="100"
             :format="formatNumberInput" :parse="parseNumberInput"
-            placeholder="—" style="width: 140px"
+            placeholder="—" style="width: 130px"
           />
           <NInputNumber
             v-else
             v-model:value="newPrice"
             :min="0" :precision="2"
             :format="formatNumberInput" :parse="parseNumberInput"
-            placeholder="—" style="width: 140px"
+            placeholder="—" style="width: 130px"
           />
         </div>
         <div class="sp-ctl">
@@ -250,9 +311,8 @@ function pctText(v: number | null | undefined): string {
             v-model:value="promotionFactor"
             :min="0" :step="20"
             :format="formatNumberInput" :parse="parseNumberInput"
-            style="width: 130px"
+            style="width: 120px"
           />
-          <NText depth="3" style="font-size: 12px">% sales uplift</NText>
         </div>
         <NButton :type="dirty ? 'primary' : 'default'" :disabled="!hasPrice" :loading="previewing" @click="apply">Apply</NButton>
       </div>
@@ -288,7 +348,7 @@ function pctText(v: number | null | undefined): string {
             <div class="sp-cmp-side">
               <span class="sp-cell-l">At current price</span>
               <span class="sp-cmp-v mono"><MoneyValue :value="curUnitMargin" /></span>
-              <span class="sp-cmp-pct mono" :class="`txt-${band(curUnitMarginPct)}`">{{ pctText(curUnitMarginPct) }}</span>
+              <span class="sp-cmp-pct mono" :class="`txt-${fixedBand(curUnitMarginPct)}`">{{ pctText(curUnitMarginPct) }}</span>
             </div>
             <span class="sp-cmp-arrow">→</span>
             <div class="sp-cmp-side sp-cmp-key" :class="[`band-${unitNewBand}`, { pending: dirty }]">
@@ -304,13 +364,13 @@ function pctText(v: number | null | undefined): string {
             <div class="sp-cmp-side">
               <span class="sp-cell-l">At current price</span>
               <span class="sp-cmp-v mono"><MoneyValue :value="curTotalMargin" /></span>
-              <span class="sp-cmp-pct mono" :class="`txt-${band(curTotalMarginPct)}`">{{ pctText(curTotalMarginPct) }}</span>
+              <span class="sp-cmp-pct mono" :class="`txt-${fixedBand(curTotalMarginPct)}`">{{ pctText(curTotalMarginPct) }}</span>
             </div>
             <span class="sp-cmp-arrow">→</span>
             <div class="sp-cmp-side" :class="{ pending: dirty }">
               <span class="sp-cell-l">At new price</span>
               <span class="sp-cmp-v mono"><MoneyValue :value="preview?.total_margin" /></span>
-              <span class="sp-cmp-pct mono" :class="`txt-${band(preview?.total_margin_pct)}`">{{ pctText(preview?.total_margin_pct) }}</span>
+              <span class="sp-cmp-pct mono" :class="`txt-${fixedBand(preview?.total_margin_pct)}`">{{ pctText(preview?.total_margin_pct) }}</span>
             </div>
           </div>
         </div>
@@ -334,8 +394,10 @@ function pctText(v: number | null | undefined): string {
       </div>
 
       <NSpace justify="end" style="margin-top: 18px">
-        <NButton @click="emit('update:show', false)">Cancel</NButton>
-        <NButton type="primary" :disabled="!hasPrice" :loading="saving" @click="confirm">Confirm price</NButton>
+        <NButton @click="emit('update:show', false)">Close</NButton>
+        <NButton type="primary" :disabled="!hasPrice" :loading="saving" @click="saveVariant">
+          {{ editingVariantId == null ? 'Add variant' : 'Save changes' }}
+        </NButton>
       </NSpace>
 
       <CompetitorPricesDialog
@@ -350,6 +412,30 @@ function pctText(v: number | null | undefined): string {
 </template>
 
 <style scoped>
+/* Variants list */
+.sp-variants { border: 1px solid #e6e8ef; border-radius: 9px; padding: 12px 14px; margin-bottom: 16px; }
+.sp-var-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sp-var-list { display: flex; flex-direction: column; gap: 4px; }
+.sp-var {
+  display: grid;
+  grid-template-columns: 96px 1fr 110px 70px 70px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+}
+.sp-var.active { background: #f0f6ff; }
+.sp-var.editing { border-color: #d9d4f5; }
+.sp-var-label { font-weight: 600; color: #2b2b33; }
+.sp-var-price { font-weight: 700; }
+.sp-var-disc { color: #b5760c; font-size: 12px; }
+.sp-var-margin { font-weight: 700; text-align: right; }
+.sp-var-actions { display: inline-flex; gap: 2px; }
+.sp-var-empty { font-size: 13px; color: #b0b6c2; font-style: italic; padding: 4px 2px; }
+
+.sp-editor-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #8b95a7; margin-bottom: 10px; }
+
 /* 1. Price heroes */
 .sp-heroes { display: flex; gap: 16px; margin-bottom: 16px; }
 .sp-hero {
@@ -369,7 +455,6 @@ function pctText(v: number | null | undefined): string {
 .sp-hero-sub { display: block; font-size: 16px; font-weight: 400; opacity: 0.8; margin-top: 3px; }
 .sp-hero-sub strong { font-weight: 800; }
 
-/* Margin % (new price) — headline figure, tile coloured by band */
 .sp-hero-margin.band-good { background: #eaf6f0; border-color: #bfe3cf; }
 .sp-hero-margin.band-good .sp-hero-l { color: #15935b; }
 .sp-hero-margin.band-mid { background: #fdf3e7; border-color: #f0d9b8; }
@@ -381,18 +466,13 @@ function pctText(v: number | null | undefined): string {
 .pending { opacity: 0.5; transition: opacity 0.15s; }
 
 /* Controls */
-.sp-controls { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin-bottom: 18px; }
+.sp-controls { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
 .sp-ctl { display: flex; align-items: center; gap: 10px; }
 .sp-lbl { font-size: 12px; color: #8b95a7; }
 
-/* 2 & 3. Two-column panels */
+/* Two-column panels */
 .sp-cols { display: flex; gap: 16px; margin-bottom: 16px; }
-.sp-panel {
-  flex: 1 1 0;
-  border: 1px solid #e6e8ef;
-  border-radius: 9px;
-  padding: 14px 16px;
-}
+.sp-panel { flex: 1 1 0; border: 1px solid #e6e8ef; border-radius: 9px; padding: 14px 16px; }
 .sp-panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .sp-panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #8b95a7; }
 .sp-grid { display: flex; gap: 28px; }
@@ -419,7 +499,7 @@ function pctText(v: number | null | undefined): string {
 .txt-mid { color: #c98410; }
 .txt-low { color: #d83a45; }
 
-/* The key figure: unit margin at the new price */
+/* Key figure */
 .sp-panel-key { border-color: #d9d4f5; }
 .sp-cmp-key { border-radius: 8px; padding: 8px 12px; margin: -8px -4px -8px 0; }
 .sp-cmp-key.band-good { background: #eaf6f0; }

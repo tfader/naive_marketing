@@ -123,8 +123,30 @@ export interface PromotionProduct {
   product_cost: string | number | null
   product_sales_value: string | number | null
   selected_condition_id: number | null
+  selected_variant_id: number | null
+  variants: PriceVariant[]
   supplier: { id: number; name: string } | null
   conditions: SupplierCondition[]
+}
+
+export interface PriceVariantMetrics {
+  new_price: number | null
+  unit_margin: number | null
+  unit_margin_pct: number | null
+  total_margin: number | null
+  total_margin_pct: number | null
+}
+
+export interface PriceVariant {
+  id: number
+  label: string | null
+  new_price: string | number | null
+  discount_percent: string | number | null
+  promotion_factor: number | null
+  author: { id: number; name: string } | null
+  created_at: string
+  selected: boolean
+  metrics: PriceVariantMetrics
 }
 
 export interface ItemMetrics {
