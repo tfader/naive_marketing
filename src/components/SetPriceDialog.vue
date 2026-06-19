@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NModal, NCard, NText, NRadioGroup, NRadioButton, NInputNumber, NInput, NButton, NSpace, NTag, NIcon } from 'naive-ui'
+import { NModal, NCard, NText, NRadioGroup, NRadioButton, NInputNumber, NInput, NButton, NSpace, NTag, NIcon, NSelect } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import { CreateOutline, TrashOutline, AddOutline } from '@vicons/ionicons5'
 import api from '../api/client'
 import MoneyValue from './MoneyValue.vue'
@@ -46,6 +47,16 @@ const saving = ref(false)
 const dirty = ref(false)
 const showCompetitors = ref(false)
 
+// --- Supplier commercial conditions ---
+const suppliers = ref<{ id: number; name: string }[]>([])
+const conditionForm = ref({
+  supplier_id: null as number | null,
+  quantity_min: null as number | null,
+  purchase_price: null as number | null,
+  backmargin_value: null as number | null,
+})
+const supplierOptions = computed<SelectOption[]>(() => suppliers.value.map((s) => ({ label: s.name, value: s.id })))
+
 function num(v: string | number | null | undefined): number | null {
   return v == null || v === '' ? null : Number(v)
 }
@@ -62,8 +73,35 @@ watch(
     const active = variants.value.find((v) => v.selected) ?? variants.value[0]
     if (active) loadVariant(active)
     else newDraft()
+    conditionForm.value = { supplier_id: props.cip.supplier?.id ?? null, quantity_min: null, purchase_price: null, backmargin_value: null }
+    loadSuppliers()
   }
 )
+
+async function loadSuppliers() {
+  if (suppliers.value.length) return
+  try {
+    const { data } = await api.get('/suppliers')
+    suppliers.value = data
+  } catch {
+    /* non-fatal */
+  }
+}
+
+async function addCondition() {
+  if (!props.baseUrl || conditionForm.value.supplier_id == null || conditionForm.value.purchase_price == null) return
+  await api.post(`${props.baseUrl}/conditions`, conditionForm.value)
+  conditionForm.value = { supplier_id: props.cip?.supplier?.id ?? null, quantity_min: null, purchase_price: null, backmargin_value: null }
+  await refreshPreview()
+  emit('saved')
+}
+
+async function deleteCondition(id: number) {
+  if (!props.baseUrl) return
+  await api.delete(`${props.baseUrl}/conditions/${id}`)
+  await refreshPreview()
+  emit('saved')
+}
 
 function loadVariant(v: PriceVariant) {
   editingVariantId.value = v.id
@@ -376,6 +414,34 @@ function pctText(v: number | null | undefined): string {
         </div>
       </div>
 
+      <!-- Supplier commercial conditions — drive the real cost -->
+      <div class="sp-panel sp-conditions">
+        <div class="sp-panel-head">
+          <span class="sp-panel-title">Supplier commercial conditions</span>
+          <NText depth="3" style="font-size: 12px">the lowest eligible purchase price drives the cost</NText>
+        </div>
+        <div v-if="cip.conditions.length" class="sp-cond-list">
+          <div v-for="c in cip.conditions" :key="c.id" class="sp-cond-row" :class="{ used: c.id === cip.selected_condition_id }">
+            <span class="sp-cond-sup">{{ c.supplier?.name ?? '—' }}</span>
+            <span class="sp-cond-f"><span class="sp-cell-l">Qty min</span><span class="mono">{{ formatNumber(c.quantity_min) }}</span></span>
+            <span class="sp-cond-f"><span class="sp-cell-l">Purchase</span><span class="mono"><MoneyValue :value="c.purchase_price" /></span></span>
+            <span class="sp-cond-f"><span class="sp-cell-l">Backmargin</span><span class="mono"><MoneyValue :value="c.backmargin_value" /></span></span>
+            <NTag v-if="c.id === cip.selected_condition_id" size="tiny" type="info" :bordered="false">used</NTag>
+            <span class="sp-cond-spacer"></span>
+            <NButton size="tiny" quaternary circle type="error" title="Remove" @click="deleteCondition(c.id)"><template #icon><NIcon><TrashOutline /></NIcon></template></NButton>
+          </div>
+        </div>
+        <div v-else class="sp-var-empty">No conditions — cost falls back to the snapshot cost price.</div>
+
+        <div class="sp-cond-form">
+          <NSelect v-model:value="conditionForm.supplier_id" :options="supplierOptions" filterable size="small" placeholder="Supplier" style="width: 200px" />
+          <NInputNumber v-model:value="conditionForm.quantity_min" :min="0" :format="formatNumberInput" :parse="parseNumberInput" size="small" placeholder="Qty min" style="width: 120px" />
+          <NInputNumber v-model:value="conditionForm.purchase_price" :min="0" :precision="2" :format="formatNumberInput" :parse="parseNumberInput" size="small" placeholder="Purchase" style="width: 130px" />
+          <NInputNumber v-model:value="conditionForm.backmargin_value" :precision="2" :format="formatNumberInput" :parse="parseNumberInput" size="small" placeholder="Backmargin (total)" style="width: 160px" />
+          <NButton type="primary" size="small" :disabled="conditionForm.supplier_id == null || conditionForm.purchase_price == null" @click="addCondition">Add condition</NButton>
+        </div>
+      </div>
+
       <!-- Supporting reference -->
       <div class="sp-strip">
         <span class="sp-strip-i"><span class="sp-cell-l">Cost</span><MoneyValue :value="cip.current_cost_price" /></span>
@@ -486,6 +552,24 @@ function pctText(v: number | null | undefined): string {
 .sp-cmp-v { font-size: 22px; font-weight: 700; color: #2b2b33; line-height: 1.1; }
 .sp-cmp-pct { font-size: 13px; font-weight: 600; }
 .sp-cmp-arrow { color: #c2c7d0; font-size: 20px; flex: 0 0 auto; }
+
+/* Supplier conditions */
+.sp-conditions { margin-bottom: 16px; }
+.sp-cond-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.sp-cond-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid #f0f1f4;
+}
+.sp-cond-row.used { background: #f0f6ff; border-color: #cfe0fb; }
+.sp-cond-sup { font-weight: 600; color: #2b2b33; min-width: 150px; }
+.sp-cond-f { display: flex; flex-direction: column; gap: 2px; }
+.sp-cond-f .mono { font-weight: 600; color: #333; }
+.sp-cond-spacer { flex: 1 1 auto; }
+.sp-cond-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Supporting strip */
 .sp-strip { display: flex; gap: 32px; padding: 12px 16px; background: #f7f8fb; border-radius: 8px; }
